@@ -1,0 +1,49 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Arduino: Compile",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "compile",
+        "--fqbn",
+        "esp32:esp32:esp32p4_4ds_mipi",
+        "."
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Upload",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "upload",
+        "-p",
+        "COM5",
+        "--fqbn",
+        "esp32:esp32:esp32p4_4ds_mipi",
+        "."
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Arduino: Monitor",
+      "type": "shell",
+      "command": "arduino-cli",
+      "args": [
+        "monitor",
+        "-p",
+        "COM5",
+        "--config",
+        "115200"
+      ],
+      "problemMatcher": [],
+      "isBackground": true
+    }
+  ]
+}
