@@ -1,6 +1,7 @@
 #ifndef _JD9165_LCD_H
 #define _JD9165_LCD_H
 #include <stdio.h>
+#include "esp_lcd_mipi_dsi.h"
 
 class jd9165_lcd
 {
@@ -19,6 +20,7 @@ public:
     void te_off();
     uint16_t width();
     uint16_t height();
+    bool registerColorTransferDoneCallback(esp_lcd_dpi_panel_color_trans_done_cb_t cb, void *user_ctx);
 
 private:
     int8_t _lcd_rst;

@@ -151,3 +151,14 @@ uint16_t jd9165_lcd::height()
 {
     return LCD_V_RES;
 }
+
+bool jd9165_lcd::registerColorTransferDoneCallback(esp_lcd_dpi_panel_color_trans_done_cb_t cb, void *user_ctx)
+{
+    if ((panel_handle == NULL) || (cb == NULL)) {
+        return false;
+    }
+
+    esp_lcd_dpi_panel_event_callbacks_t callbacks = {};
+    callbacks.on_color_trans_done = cb;
+    return esp_lcd_dpi_panel_register_event_callbacks(panel_handle, &callbacks, user_ctx) == ESP_OK;
+}
