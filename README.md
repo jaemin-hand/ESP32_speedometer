@@ -27,7 +27,7 @@ Pin assignments are defined in [pins_config.h](./pins_config.h).
 
 ## Project layout
 
-- `esp32p4_arduino_mipi-dsi_lvgl.ino`: application entry point and main loop
+- `ESP32_speedometer.ino`: application entry point and main loop
 - `src/gnss`: SBF parser and GNSS state handling
 - `src/can`: TWAI setup and CAN speed decoding
 - `src/fusion`: active speed source selection
@@ -75,3 +75,4 @@ arduino-cli compile --clean --fqbn esp32:esp32:esp32p4 --board-options ChipVaria
 
 - The `EXT` speed source is still a placeholder.
 - The CAN speed decoder table still contains a template entry and should be updated with the real vehicle signal mapping.
+
