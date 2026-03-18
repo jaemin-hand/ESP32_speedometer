@@ -1,4 +1,5 @@
 debug.log
+.arduino/
 
 .vscode/*.browse.VC.db*
 .vscode/*.VC.db*
