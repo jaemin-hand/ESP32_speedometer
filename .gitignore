@@ -1,0 +1,6 @@
+debug.log
+
+.vscode/*.browse.VC.db*
+.vscode/*.VC.db*
+.vscode/*.opendb
+.vscode/ipch/
