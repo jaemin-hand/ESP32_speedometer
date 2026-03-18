@@ -2,5 +2,6 @@
     "configuration": "ChipVariant=prev3,JTAGAdapter=default,PSRAM=enabled,USBMode=default,CDCOnBoot=default,MSCOnBoot=default,DFUOnBoot=default,UploadMode=default,PartitionScheme=default,FlashMode=qio,FlashFreq=80,FlashSize=16M,UploadSpeed=921600,DebugLevel=none,EraseFlash=none",
     "board": "esp32:esp32:esp32p4",
     "sketch": "ESP32_speedometer.ino",
-    "intelliSenseGen": "disable"
+    "intelliSenseGen": "disable",
+    "port": "COM5"
 }
