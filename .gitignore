@@ -1,5 +1,6 @@
 debug.log
 .arduino/
+.vscode/compile_commands.json
 
 .vscode/*.browse.VC.db*
 .vscode/*.VC.db*
