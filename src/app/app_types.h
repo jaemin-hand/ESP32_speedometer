@@ -59,6 +59,8 @@ enum UiAction : uint8_t {
 };
 
 struct UiSnapshot {
+  static constexpr uint16_t CAN_MONITOR_TEXT_SIZE = 512;
+
   bool extValid = false;
   float extSpeedKmh = 0.0f;
   bool gpsValid = false;
@@ -70,5 +72,6 @@ struct UiSnapshot {
   SpeedSourceMode sourceMode = SPEED_MODE_AUTO;
   SpeedSource selectedSource = SPEED_SOURCE_NONE;
   bool corrActive = false;
+  char canMonitorText[CAN_MONITOR_TEXT_SIZE] = {0};
   GpsData gps;
 };

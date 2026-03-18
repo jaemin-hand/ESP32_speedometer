@@ -8,6 +8,8 @@ namespace {
 
 constexpr float KMH_TO_MPH = 0.621371f;
 constexpr double METERS_TO_MILES = 0.000621371192;
+constexpr lv_coord_t TIME_CHAR_WIDTH = 31;
+constexpr lv_coord_t TIME_CHAR_HEIGHT = 92;
 
 #if LV_FONT_MONTSERRAT_48
   #define FONT_NUMBER (&lv_font_montserrat_48)
@@ -136,11 +138,25 @@ void UiManager::begin() {
   lv_obj_set_style_text_font(labelDistanceUnit_, FONT_UNIT, 0);
   lv_obj_set_pos(labelDistanceUnit_, 216, 188);
 
-  labelTimeValue_ = lv_label_create(cellTime_);
-  lv_label_set_text(labelTimeValue_, "00:00.0");
-  lv_obj_set_style_text_color(labelTimeValue_, lv_color_white(), 0);
-  lv_obj_set_style_text_font(labelTimeValue_, FONT_TIME, 0);
-  lv_obj_align(labelTimeValue_, LV_ALIGN_CENTER, 0, 30);
+  timeValueBox_ = lv_obj_create(cellTime_);
+  lv_obj_set_size(timeValueBox_, TIME_CHAR_WIDTH * kTimeCharSlots, TIME_CHAR_HEIGHT);
+  lv_obj_align(timeValueBox_, LV_ALIGN_CENTER, 0, 30);
+  lv_obj_set_style_bg_opa(timeValueBox_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(timeValueBox_, 0, 0);
+  lv_obj_set_style_pad_all(timeValueBox_, 0, 0);
+  lv_obj_clear_flag(timeValueBox_, LV_OBJ_FLAG_SCROLLABLE);
+
+  for (uint8_t i = 0; i < kTimeCharSlots; ++i) {
+    labelTimeChars_[i] = lv_label_create(timeValueBox_);
+    lv_label_set_text(labelTimeChars_[i], "");
+    lv_obj_set_style_text_color(labelTimeChars_[i], lv_color_white(), 0);
+    lv_obj_set_style_text_font(labelTimeChars_[i], FONT_TIME, 0);
+    lv_obj_set_width(labelTimeChars_[i], TIME_CHAR_WIDTH);
+    lv_obj_set_height(labelTimeChars_[i], TIME_CHAR_HEIGHT);
+    lv_obj_set_style_text_align(labelTimeChars_[i], LV_TEXT_ALIGN_LEFT, 0);
+    lv_obj_set_pos(labelTimeChars_[i], static_cast<lv_coord_t>(i * TIME_CHAR_WIDTH), 0);
+  }
+  renderTimeText("00:00.0");
 
   lv_obj_t *labelSatsTitle = lv_label_create(cellSats_);
   lv_label_set_text(labelSatsTitle, "SATs");
@@ -153,6 +169,22 @@ void UiManager::begin() {
   lv_obj_set_style_text_color(labelSatsValue_, lv_color_hex(0xd8f7ff), 0);
   lv_obj_set_style_text_font(labelSatsValue_, FONT_NUMBER, 0);
   lv_obj_set_pos(labelSatsValue_, 72, 120);
+
+  buttonCanMonitor_ = lv_btn_create(cellSats_);
+  lv_obj_set_size(buttonCanMonitor_, 118, 108);
+  lv_obj_align(buttonCanMonitor_, LV_ALIGN_BOTTOM_RIGHT, -118, 0);
+  lv_obj_set_style_radius(buttonCanMonitor_, 0, 0);
+  lv_obj_set_style_bg_color(buttonCanMonitor_, lv_color_black(), 0);
+  lv_obj_set_style_border_width(buttonCanMonitor_, 2, 0);
+  lv_obj_set_style_border_color(buttonCanMonitor_, lv_color_white(), 0);
+  lv_obj_set_style_shadow_width(buttonCanMonitor_, 0, 0);
+  lv_obj_add_event_cb(buttonCanMonitor_, onCanMonitorButton, LV_EVENT_CLICKED, nullptr);
+
+  lv_obj_t *labelCanMonitor = lv_label_create(buttonCanMonitor_);
+  lv_label_set_text(labelCanMonitor, "CAN");
+  lv_obj_set_style_text_color(labelCanMonitor, lv_color_white(), 0);
+  lv_obj_set_style_text_font(labelCanMonitor, FONT_BUTTON, 0);
+  lv_obj_center(labelCanMonitor);
 
   buttonReset_ = lv_btn_create(cellSats_);
   lv_obj_set_size(buttonReset_, 118, 108);
@@ -169,6 +201,47 @@ void UiManager::begin() {
   lv_obj_set_style_text_color(labelReset, lv_color_white(), 0);
   lv_obj_set_style_text_font(labelReset, FONT_BUTTON, 0);
   lv_obj_center(labelReset);
+
+  overlayCanMonitor_ = lv_obj_create(screen);
+  lv_obj_set_size(overlayCanMonitor_, 1024, 600);
+  lv_obj_set_pos(overlayCanMonitor_, 0, 0);
+  lv_obj_set_style_radius(overlayCanMonitor_, 0, 0);
+  lv_obj_set_style_bg_color(overlayCanMonitor_, lv_color_black(), 0);
+  lv_obj_set_style_border_width(overlayCanMonitor_, 2, 0);
+  lv_obj_set_style_border_color(overlayCanMonitor_, lv_color_white(), 0);
+  lv_obj_set_style_pad_all(overlayCanMonitor_, 20, 0);
+  lv_obj_set_style_shadow_width(overlayCanMonitor_, 0, 0);
+  lv_obj_add_flag(overlayCanMonitor_, LV_OBJ_FLAG_HIDDEN);
+
+  lv_obj_t *labelCanMonitorTitle = lv_label_create(overlayCanMonitor_);
+  lv_label_set_text(labelCanMonitorTitle, "CAN Monitor");
+  lv_obj_set_style_text_color(labelCanMonitorTitle, lv_color_white(), 0);
+  lv_obj_set_style_text_font(labelCanMonitorTitle, FONT_TITLE, 0);
+  lv_obj_align(labelCanMonitorTitle, LV_ALIGN_TOP_LEFT, 8, 4);
+
+  labelCanMonitorText_ = lv_label_create(overlayCanMonitor_);
+  lv_label_set_text(labelCanMonitorText_, "Waiting for CAN data...");
+  lv_label_set_long_mode(labelCanMonitorText_, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(labelCanMonitorText_, 940);
+  lv_obj_set_style_text_color(labelCanMonitorText_, lv_color_white(), 0);
+  lv_obj_set_style_text_font(labelCanMonitorText_, FONT_UNIT, 0);
+  lv_obj_align(labelCanMonitorText_, LV_ALIGN_TOP_LEFT, 8, 68);
+
+  buttonCanMonitorBack_ = lv_btn_create(overlayCanMonitor_);
+  lv_obj_set_size(buttonCanMonitorBack_, 150, 80);
+  lv_obj_align(buttonCanMonitorBack_, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+  lv_obj_set_style_radius(buttonCanMonitorBack_, 0, 0);
+  lv_obj_set_style_bg_color(buttonCanMonitorBack_, lv_color_black(), 0);
+  lv_obj_set_style_border_width(buttonCanMonitorBack_, 2, 0);
+  lv_obj_set_style_border_color(buttonCanMonitorBack_, lv_color_white(), 0);
+  lv_obj_set_style_shadow_width(buttonCanMonitorBack_, 0, 0);
+  lv_obj_add_event_cb(buttonCanMonitorBack_, onCanMonitorBackButton, LV_EVENT_CLICKED, nullptr);
+
+  lv_obj_t *labelCanMonitorBack = lv_label_create(buttonCanMonitorBack_);
+  lv_label_set_text(labelCanMonitorBack, "Back");
+  lv_obj_set_style_text_color(labelCanMonitorBack, lv_color_white(), 0);
+  lv_obj_set_style_text_font(labelCanMonitorBack, FONT_BUTTON, 0);
+  lv_obj_center(labelCanMonitorBack);
 }
 
 void UiManager::update(const UiSnapshot &snapshot) {
@@ -199,11 +272,12 @@ void UiManager::update(const UiSnapshot &snapshot) {
   }
 
   formatTime(valueBuf, sizeof(valueBuf), snapshot);
-  lv_label_set_text(labelTimeValue_, valueBuf);
+  renderTimeText(valueBuf);
   lv_label_set_text(labelTimeTitle_, timeMode_ == TIME_DISPLAY_TRIP ? "Time" : "UTC");
 
   snprintf(valueBuf, sizeof(valueBuf), "%d", snapshot.gps.satellites > 99 ? 99 : snapshot.gps.satellites);
   lv_label_set_text(labelSatsValue_, valueBuf);
+  lv_label_set_text(labelCanMonitorText_, snapshot.canMonitorText[0] ? snapshot.canMonitorText : "Waiting for CAN data...");
 
   const SpeedSource highlightedSource = getHighlightedSource(snapshot);
   setCellHighlight(cellExt_, highlightedSource == SPEED_SOURCE_EXT);
@@ -249,6 +323,20 @@ void UiManager::onTimePanel(lv_event_t *e) {
   (void)e;
   if (instance_ != nullptr) {
     instance_->toggleTimeMode();
+  }
+}
+
+void UiManager::onCanMonitorButton(lv_event_t *e) {
+  (void)e;
+  if (instance_ != nullptr) {
+    instance_->showCanMonitor(true);
+  }
+}
+
+void UiManager::onCanMonitorBackButton(lv_event_t *e) {
+  (void)e;
+  if (instance_ != nullptr) {
+    instance_->showCanMonitor(false);
   }
 }
 
@@ -310,6 +398,19 @@ void UiManager::toggleTimeMode() {
       (timeMode_ == TIME_DISPLAY_TRIP) ? TIME_DISPLAY_UTC : TIME_DISPLAY_TRIP;
 }
 
+void UiManager::showCanMonitor(bool visible) {
+  if (overlayCanMonitor_ == nullptr) {
+    return;
+  }
+
+  if (visible) {
+    lv_obj_clear_flag(overlayCanMonitor_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(overlayCanMonitor_);
+  } else {
+    lv_obj_add_flag(overlayCanMonitor_, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 void UiManager::setCellHighlight(lv_obj_t *cell, bool active) {
   if (cell == nullptr) {
     return;
@@ -361,13 +462,50 @@ void UiManager::formatTime(char *timeBuf, size_t timeBufSize, const UiSnapshot &
 
   const uint32_t totalMs = snapshot.tripElapsedMs;
   const uint32_t totalSeconds = totalMs / 1000U;
-  const uint32_t minutes = totalSeconds / 60U;
+  const uint32_t hours = totalSeconds / 3600U;
+  const uint32_t minutes = (totalSeconds / 60U) % 60U;
   const uint32_t seconds = totalSeconds % 60U;
   const uint32_t tenths = (totalMs % 1000U) / 100U;
+
+  if (hours > 0U) {
+    snprintf(timeBuf, timeBufSize, "%lu:%02lu:%02lu.%lu",
+             static_cast<unsigned long>(hours),
+             static_cast<unsigned long>(minutes),
+             static_cast<unsigned long>(seconds),
+             static_cast<unsigned long>(tenths));
+    return;
+  }
+
   snprintf(timeBuf, timeBufSize, "%02lu:%02lu.%lu",
            static_cast<unsigned long>(minutes),
            static_cast<unsigned long>(seconds),
            static_cast<unsigned long>(tenths));
+}
+
+void UiManager::renderTimeText(const char *timeText) {
+  if (timeText == nullptr) {
+    return;
+  }
+
+  const size_t textLength = strlen(timeText);
+  const size_t visibleLength = (textLength > kTimeCharSlots) ? kTimeCharSlots : textLength;
+  const size_t startSlot = kTimeCharSlots - visibleLength;
+
+  for (uint8_t i = 0; i < kTimeCharSlots; ++i) {
+    if (labelTimeChars_[i] == nullptr) {
+      continue;
+    }
+
+    if ((i >= startSlot) && ((i - startSlot) < visibleLength)) {
+      char charBuf[2] = {
+          timeText[i - startSlot],
+          '\0',
+      };
+      lv_label_set_text(labelTimeChars_[i], charBuf);
+    } else {
+      lv_label_set_text(labelTimeChars_[i], "");
+    }
+  }
 }
 
 SpeedSource UiManager::getHighlightedSource(const UiSnapshot &snapshot) const {

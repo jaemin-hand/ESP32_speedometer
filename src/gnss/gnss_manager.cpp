@@ -6,12 +6,12 @@
 
 namespace {
 
-constexpr uint8_t SBF_SYNC_1 = 0x24;
-constexpr uint8_t SBF_SYNC_2 = 0x40;
-constexpr uint16_t SBF_BLOCK_PVT_GEODETIC = 4007;
-constexpr uint16_t SBF_BLOCK_RECEIVER_TIME = 5914;
-constexpr size_t SBF_BLOCK_BUFFER_SIZE = 512;
-constexpr double SBF_DNU_THRESHOLD = -1.99e10;
+constexpr uint8_t SBF_SYNC_1 = 0x24; // $ 의 아스키코드
+constexpr uint8_t SBF_SYNC_2 = 0x40; // @ 의 아스키코드 <- 이 두개가 연속이 되면 시작점을 알림
+constexpr uint16_t SBF_BLOCK_PVT_GEODETIC = 4007; // PVT 값이 들어있는 박스라고 알리는 ID
+constexpr uint16_t SBF_BLOCK_RECEIVER_TIME = 5914; // 받는 시간?이 들어있는 박스라고 알리는 ID
+constexpr size_t SBF_BLOCK_BUFFER_SIZE = 512; // 버퍼의 사이즈가 들어있는 박스라고 알리는 ID
+constexpr double SBF_DNU_THRESHOLD = -1.99e10; // 
 constexpr double RAD_TO_DEGREES = 57.29577951308232;
 constexpr float MPS_TO_KNOTS = 1.9438445f;
 

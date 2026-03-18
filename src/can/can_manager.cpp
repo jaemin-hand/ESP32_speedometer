@@ -1,6 +1,8 @@
 #include "can_manager.h"
 
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
 
 namespace {
 
@@ -47,8 +49,11 @@ bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
 void CanManager::poll(uint32_t nowMs) {
   twai_message_t rxMessage;
   while (twai_receive(&rxMessage, pdMS_TO_TICKS(0)) == ESP_OK) {
+    char monitorLine[kMonitorLineLength] = {0};
     lastRxMs_ = nowMs;
-    Serial.printf("CAN received, ID: 0x%X, len: %d\n", rxMessage.identifier, rxMessage.data_length_code);
+    formatMonitorLine(rxMessage, monitorLine, sizeof(monitorLine));
+    Serial.printf("CAN RX: %s\n", monitorLine);
+    appendMonitorLine(rxMessage);
     tryDecodeSpeed(rxMessage, nowMs);
   }
 
@@ -89,6 +94,10 @@ const CanDecodedSpeedState &CanManager::getDecodedSpeedState() const {
   return decodedSpeed_;
 }
 
+const char *CanManager::getMonitorText() const {
+  return monitorText_;
+}
+
 uint32_t CanManager::readUnsignedValue(
     const uint8_t *data,
     uint8_t startByte,
@@ -108,6 +117,85 @@ uint32_t CanManager::readUnsignedValue(
   }
 
   return value;
+}
+
+void CanManager::appendMonitorLine(const twai_message_t &rxMessage) {
+  char monitorLine[kMonitorLineLength] = {0};
+  formatMonitorLine(rxMessage, monitorLine, sizeof(monitorLine));
+
+  snprintf(
+      monitorLines_[nextMonitorLineIndex_],
+      kMonitorLineLength,
+      "%s",
+      monitorLine);
+
+  nextMonitorLineIndex_ = static_cast<uint8_t>((nextMonitorLineIndex_ + 1U) % kMonitorLineCount);
+  if (nextMonitorLineIndex_ == 0U) {
+    monitorWrapped_ = true;
+  }
+
+  rebuildMonitorText();
+}
+
+void CanManager::formatMonitorLine(
+    const twai_message_t &rxMessage,
+    char *lineBuf,
+    size_t lineBufSize) {
+  if ((lineBuf == nullptr) || (lineBufSize == 0U)) {
+    return;
+  }
+
+  char dataText[3 * 8 + 1] = {0};
+  size_t offset = 0;
+  for (uint8_t i = 0; i < rxMessage.data_length_code && i < 8; ++i) {
+    offset += static_cast<size_t>(snprintf(
+        dataText + offset,
+        sizeof(dataText) - offset,
+        (i == 0) ? "%02X" : " %02X",
+        rxMessage.data[i]));
+    if (offset >= sizeof(dataText)) {
+      break;
+    }
+  }
+
+  snprintf(
+      lineBuf,
+      lineBufSize,
+      "0x%03X [%d] %s",
+      rxMessage.identifier,
+      rxMessage.data_length_code,
+      dataText);
+}
+
+void CanManager::rebuildMonitorText() {
+  monitorText_[0] = '\0';
+
+  if (!monitorWrapped_ && nextMonitorLineIndex_ == 0U) {
+    snprintf(monitorText_, kMonitorTextSize, "Waiting for CAN data...");
+    return;
+  }
+
+  const uint8_t lineCount = monitorWrapped_ ? kMonitorLineCount : nextMonitorLineIndex_;
+  const uint8_t startIndex = monitorWrapped_ ? nextMonitorLineIndex_ : 0U;
+
+  size_t offset = 0;
+  for (uint8_t i = 0; i < lineCount; ++i) {
+    const uint8_t lineIndex = static_cast<uint8_t>((startIndex + i) % kMonitorLineCount);
+    if (monitorLines_[lineIndex][0] == '\0') {
+      continue;
+    }
+
+    offset += static_cast<size_t>(snprintf(
+        monitorText_ + offset,
+        kMonitorTextSize - offset,
+        "%s%s",
+        monitorLines_[lineIndex],
+        (i + 1U < lineCount) ? "\n" : ""));
+    if (offset >= kMonitorTextSize) {
+      monitorText_[kMonitorTextSize - 1] = '\0';
+      break;
+    }
+  }
 }
 
 bool CanManager::tryDecodeSpeed(const twai_message_t &rxMessage, uint32_t nowMs) {

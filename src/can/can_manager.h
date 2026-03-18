@@ -31,6 +31,10 @@ struct CanDecodedSpeedState {
 
 class CanManager {
 public:
+  static constexpr uint8_t kMonitorLineCount = 8;
+  static constexpr size_t kMonitorLineLength = 48;
+  static constexpr size_t kMonitorTextSize = (kMonitorLineCount * kMonitorLineLength) + 32;
+
   bool begin(gpio_num_t txPin, gpio_num_t rxPin);
   void poll(uint32_t nowMs);
 
@@ -39,6 +43,7 @@ public:
   bool hasDecodedSpeed() const;
   float getDecodedSpeedKmh() const;
   const CanDecodedSpeedState &getDecodedSpeedState() const;
+  const char *getMonitorText() const;
 
 private:
   static uint32_t readUnsignedValue(
@@ -46,9 +51,19 @@ private:
       uint8_t startByte,
       uint8_t lengthBytes,
       CanSignalEndian endian);
+  static void formatMonitorLine(
+      const twai_message_t &rxMessage,
+      char *lineBuf,
+      size_t lineBufSize);
+  void appendMonitorLine(const twai_message_t &rxMessage);
+  void rebuildMonitorText();
   bool tryDecodeSpeed(const twai_message_t &rxMessage, uint32_t nowMs);
 
   uint32_t lastRxMs_ = 0;
   uint32_t decodedSpeedTimeoutMs_ = 0;
   CanDecodedSpeedState decodedSpeed_;
+  char monitorLines_[kMonitorLineCount][kMonitorLineLength] = {};
+  char monitorText_[kMonitorTextSize] = "Waiting for CAN data...";
+  uint8_t nextMonitorLineIndex_ = 0;
+  bool monitorWrapped_ = false;
 };

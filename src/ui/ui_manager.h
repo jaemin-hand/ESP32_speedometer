@@ -28,6 +28,8 @@ private:
   static void onCanPanel(lv_event_t *e);
   static void onDistancePanel(lv_event_t *e);
   static void onTimePanel(lv_event_t *e);
+  static void onCanMonitorButton(lv_event_t *e);
+  static void onCanMonitorBackButton(lv_event_t *e);
   static void onResetButton(lv_event_t *e);
 
   static UiManager *instance_;
@@ -45,11 +47,15 @@ private:
   void toggleDisplayUnit(DisplayUnit &unit);
   void toggleDistanceUnit();
   void toggleTimeMode();
+  void showCanMonitor(bool visible);
   void setCellHighlight(lv_obj_t *cell, bool active);
   void formatSpeed(char *valueBuf, size_t valueBufSize, float speedKmh, bool valid, DisplayUnit unit) const;
   void formatDistance(char *valueBuf, size_t valueBufSize, char *unitBuf, size_t unitBufSize, double distanceMeters) const;
   void formatTime(char *timeBuf, size_t timeBufSize, const UiSnapshot &snapshot) const;
+  void renderTimeText(const char *timeText);
   SpeedSource getHighlightedSource(const UiSnapshot &snapshot) const;
+
+  static constexpr uint8_t kTimeCharSlots = 10;
 
   DisplayUnit extUnit_ = DISPLAY_UNIT_KMH;
   DisplayUnit gpsUnit_ = DISPLAY_UNIT_KMH;
@@ -64,7 +70,11 @@ private:
   lv_obj_t *cellDistance_ = nullptr;
   lv_obj_t *cellTime_ = nullptr;
   lv_obj_t *cellSats_ = nullptr;
+  lv_obj_t *buttonCanMonitor_ = nullptr;
   lv_obj_t *buttonReset_ = nullptr;
+  lv_obj_t *overlayCanMonitor_ = nullptr;
+  lv_obj_t *labelCanMonitorText_ = nullptr;
+  lv_obj_t *buttonCanMonitorBack_ = nullptr;
 
   lv_obj_t *labelExtValue_ = nullptr;
   lv_obj_t *labelExtUnit_ = nullptr;
@@ -75,6 +85,7 @@ private:
   lv_obj_t *labelDistanceValue_ = nullptr;
   lv_obj_t *labelDistanceUnit_ = nullptr;
   lv_obj_t *labelTimeTitle_ = nullptr;
-  lv_obj_t *labelTimeValue_ = nullptr;
+  lv_obj_t *timeValueBox_ = nullptr;
+  lv_obj_t *labelTimeChars_[kTimeCharSlots] = {};
   lv_obj_t *labelSatsValue_ = nullptr;
 };

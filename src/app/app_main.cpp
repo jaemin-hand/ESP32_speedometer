@@ -137,6 +137,7 @@ UiSnapshot buildUiSnapshot(const GpsData &gps) {
   snapshot.sourceMode = fusionState.mode;
   snapshot.selectedSource = fusionState.selectedSource;
   snapshot.corrActive = fusionState.corrActive;
+  snprintf(snapshot.canMonitorText, sizeof(snapshot.canMonitorText), "%s", canManager.getMonitorText());
   snapshot.gps = gps;
   return snapshot;
 }
