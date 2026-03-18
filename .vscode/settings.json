@@ -7,5 +7,6 @@
   "arduino.useArduinoCli": true,
   "arduino.path": "C:\\Program Files\\Arduino CLI",
   "arduino.commandPath": "arduino-cli.exe",
+  "arduino.disableIntelliSenseAutoGen": true,
   "C_Cpp.intelliSenseEngine": "Default"
 }
