@@ -1,8 +1,0 @@
-{
-  "files.associations": {
-    "*.ino": "cpp"
-  },
-  "editor.formatOnSave": false,
-  "arduino.useArduinoCli": true,
-  "terminal.integrated.defaultProfile.windows": "Git Bash"
-}
