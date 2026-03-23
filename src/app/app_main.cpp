@@ -24,13 +24,14 @@
 
 namespace {
 
-constexpr int CAN_RX_PIN = 2;
-constexpr int CAN_TX_PIN = 48;
-constexpr int GPS_RX_PIN = 3;
-constexpr int GPS_TX_PIN = 47;
+constexpr int CAN_RX_PIN = 2; // 
+constexpr int CAN_TX_PIN = 48; // == transceiver TX label
+constexpr int GPS_RX_PIN = 3;  // mosaic TX -> esp GPIO3
+constexpr int GPS_TX_PIN = 47; // esp GPIO47 -> mosaic RX
 
 constexpr uint32_t UI_UPDATE_INTERVAL_MS = 33;
 constexpr uint32_t DEBUG_PRINT_INTERVAL_MS = 1000;
+constexpr uint32_t CAN_HEARTBEAT_INTERVAL_MS = 1000;
 
 HardwareSerial gpsSerial(1);
 
@@ -217,10 +218,21 @@ void appSetup() {
 void appLoop() {
   static unsigned long lastPrintMs = 0;
   static unsigned long lastUiUpdateMs = 0;
+  static unsigned long lastCanHeartbeatMs = 0;
 
   const uint32_t nowMs = millis();
 
   canManager.poll(nowMs);
+
+  if ((nowMs - lastCanHeartbeatMs) >= CAN_HEARTBEAT_INTERVAL_MS) {
+    lastCanHeartbeatMs = nowMs;
+    if (canManager.sendTestFrame()) {
+      Serial.println("CAN TX heartbeat: 0x777 [4] 01 02 03 04");
+    } else {
+      Serial.println("CAN TX heartbeat failed");
+      canManager.printStatus("CAN diagnostics");
+    }
+  }
 
   gnss.update();
   const GpsData &gps = gnss.getData();

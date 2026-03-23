@@ -31,7 +31,7 @@ bool isReasonableSpeed(float speedKmh) {
 
 bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
   twai_general_config_t gConfig =
-      TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, TWAI_MODE_NORMAL);
+      TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, TWAI_MODE_NO_ACK);
   twai_timing_config_t tConfig = TWAI_TIMING_CONFIG_500KBITS();
 
   twai_filter_config_t fConfig;
@@ -96,6 +96,28 @@ const CanDecodedSpeedState &CanManager::getDecodedSpeedState() const {
 
 const char *CanManager::getMonitorText() const {
   return monitorText_;
+}
+
+void CanManager::printStatus(const char *prefix) const {
+  twai_status_info_t status = {};
+  if (twai_get_status_info(&status) != ESP_OK) {
+    Serial.println("TWAI status read failed");
+    return;
+  }
+
+  if ((prefix != nullptr) && (prefix[0] != '\0')) {
+    Serial.println(prefix);
+  }
+
+  Serial.printf(
+      "TWAI state=%d tx_err=%lu rx_err=%lu tx_to_send=%lu rx_to_recv=%lu bus_err=%lu arb_lost=%lu\n",
+      static_cast<int>(status.state),
+      static_cast<unsigned long>(status.tx_error_counter),
+      static_cast<unsigned long>(status.rx_error_counter),
+      static_cast<unsigned long>(status.msgs_to_tx),
+      static_cast<unsigned long>(status.msgs_to_rx),
+      static_cast<unsigned long>(status.bus_error_count),
+      static_cast<unsigned long>(status.arb_lost_count));
 }
 
 uint32_t CanManager::readUnsignedValue(

@@ -44,6 +44,7 @@ public:
   float getDecodedSpeedKmh() const;
   const CanDecodedSpeedState &getDecodedSpeedState() const;
   const char *getMonitorText() const;
+  void printStatus(const char *prefix = nullptr) const;
 
 private:
   static uint32_t readUnsignedValue(
