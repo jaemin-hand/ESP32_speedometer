@@ -24,7 +24,9 @@
 
 namespace {
 
-constexpr int CAN_RX_PIN = 2; // 
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-24_02";
+
+constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
 constexpr int GPS_RX_PIN = 3;  // mosaic TX -> esp GPIO3
 constexpr int GPS_TX_PIN = 47; // esp GPIO47 -> mosaic RX
@@ -173,6 +175,7 @@ void appSetup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("ESP32P4 speed display prototype");
+  Serial.println(kFirmwareTag);
 
   lcd.begin();
   touch.begin();

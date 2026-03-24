@@ -37,6 +37,7 @@ public:
 
   bool begin(gpio_num_t txPin, gpio_num_t rxPin);
   void poll(uint32_t nowMs);
+  bool isInitialized() const;
 
   bool sendTestFrame();
   bool isLinkAlive(uint32_t nowMs, uint32_t aliveWindowMs) const;
@@ -67,4 +68,5 @@ private:
   char monitorText_[kMonitorTextSize] = "Waiting for CAN data...";
   uint8_t nextMonitorLineIndex_ = 0;
   bool monitorWrapped_ = false;
+  bool initialized_ = false;
 };
