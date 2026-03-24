@@ -31,6 +31,8 @@ constexpr int GPS_TX_PIN = 47; // esp GPIO47 -> mosaic RX
 
 constexpr uint32_t UI_UPDATE_INTERVAL_MS = 33;
 constexpr uint32_t DEBUG_PRINT_INTERVAL_MS = 1000;
+constexpr uint32_t CAN_STATUS_INTERVAL_MS = 1000;
+constexpr bool ENABLE_CAN_HEARTBEAT = false;
 constexpr uint32_t CAN_HEARTBEAT_INTERVAL_MS = 1000;
 
 HardwareSerial gpsSerial(1);
@@ -217,6 +219,7 @@ void appSetup() {
 
 void appLoop() {
   static unsigned long lastPrintMs = 0;
+  static unsigned long lastCanStatusMs = 0;
   static unsigned long lastUiUpdateMs = 0;
   static unsigned long lastCanHeartbeatMs = 0;
 
@@ -224,7 +227,7 @@ void appLoop() {
 
   canManager.poll(nowMs);
 
-  if ((nowMs - lastCanHeartbeatMs) >= CAN_HEARTBEAT_INTERVAL_MS) {
+  if (ENABLE_CAN_HEARTBEAT && (nowMs - lastCanHeartbeatMs) >= CAN_HEARTBEAT_INTERVAL_MS) {
     lastCanHeartbeatMs = nowMs;
     if (canManager.sendTestFrame()) {
       Serial.println("CAN TX heartbeat: 0x777 [4] 01 02 03 04");
@@ -251,6 +254,11 @@ void appLoop() {
   if ((nowMs - lastPrintMs) >= DEBUG_PRINT_INTERVAL_MS) {
     lastPrintMs = nowMs;
     printGpsSummary();
+  }
+
+  if ((nowMs - lastCanStatusMs) >= CAN_STATUS_INTERVAL_MS) {
+    lastCanStatusMs = nowMs;
+    canManager.printStatus("CAN status");
   }
 
   if ((nowMs - lastUiUpdateMs) >= UI_UPDATE_INTERVAL_MS) {

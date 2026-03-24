@@ -31,13 +31,9 @@ bool isReasonableSpeed(float speedKmh) {
 
 bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
   twai_general_config_t gConfig =
-      TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, TWAI_MODE_NO_ACK);
+      TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, TWAI_MODE_NORMAL);
   twai_timing_config_t tConfig = TWAI_TIMING_CONFIG_500KBITS();
-
-  twai_filter_config_t fConfig;
-  fConfig.acceptance_code = 0;
-  fConfig.acceptance_mask = 0;
-  fConfig.single_filter = true;
+  twai_filter_config_t fConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
   if (twai_driver_install(&gConfig, &tConfig, &fConfig) != ESP_OK) {
     return false;
@@ -110,12 +106,15 @@ void CanManager::printStatus(const char *prefix) const {
   }
 
   Serial.printf(
-      "TWAI state=%d tx_err=%lu rx_err=%lu tx_to_send=%lu rx_to_recv=%lu bus_err=%lu arb_lost=%lu\n",
+      "TWAI state=%d tx_err=%lu rx_err=%lu tx_to_send=%lu rx_to_recv=%lu tx_failed=%lu rx_missed=%lu rx_overrun=%lu bus_err=%lu arb_lost=%lu\n",
       static_cast<int>(status.state),
       static_cast<unsigned long>(status.tx_error_counter),
       static_cast<unsigned long>(status.rx_error_counter),
       static_cast<unsigned long>(status.msgs_to_tx),
       static_cast<unsigned long>(status.msgs_to_rx),
+      static_cast<unsigned long>(status.tx_failed_count),
+      static_cast<unsigned long>(status.rx_missed_count),
+      static_cast<unsigned long>(status.rx_overrun_count),
       static_cast<unsigned long>(status.bus_error_count),
       static_cast<unsigned long>(status.arb_lost_count));
 }
