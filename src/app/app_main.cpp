@@ -24,7 +24,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-24_02";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-25_05_RESTORE_57A26FBD";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label

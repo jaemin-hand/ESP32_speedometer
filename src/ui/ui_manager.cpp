@@ -227,6 +227,22 @@ void UiManager::begin() {
   lv_obj_set_style_text_font(labelCanMonitorText_, FONT_UNIT, 0);
   lv_obj_align(labelCanMonitorText_, LV_ALIGN_TOP_LEFT, 8, 68);
 
+  buttonCanMonitorSend_ = lv_btn_create(overlayCanMonitor_);
+  lv_obj_set_size(buttonCanMonitorSend_, 190, 80);
+  lv_obj_align(buttonCanMonitorSend_, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+  lv_obj_set_style_radius(buttonCanMonitorSend_, 0, 0);
+  lv_obj_set_style_bg_color(buttonCanMonitorSend_, lv_color_black(), 0);
+  lv_obj_set_style_border_width(buttonCanMonitorSend_, 2, 0);
+  lv_obj_set_style_border_color(buttonCanMonitorSend_, lv_color_white(), 0);
+  lv_obj_set_style_shadow_width(buttonCanMonitorSend_, 0, 0);
+  lv_obj_add_event_cb(buttonCanMonitorSend_, onCanMonitorSendButton, LV_EVENT_CLICKED, nullptr);
+
+  lv_obj_t *labelCanMonitorSend = lv_label_create(buttonCanMonitorSend_);
+  lv_label_set_text(labelCanMonitorSend, "Send CAN");
+  lv_obj_set_style_text_color(labelCanMonitorSend, lv_color_white(), 0);
+  lv_obj_set_style_text_font(labelCanMonitorSend, FONT_BUTTON, 0);
+  lv_obj_center(labelCanMonitorSend);
+
   buttonCanMonitorBack_ = lv_btn_create(overlayCanMonitor_);
   lv_obj_set_size(buttonCanMonitorBack_, 150, 80);
   lv_obj_align(buttonCanMonitorBack_, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
@@ -330,6 +346,13 @@ void UiManager::onCanMonitorButton(lv_event_t *e) {
   (void)e;
   if (instance_ != nullptr) {
     instance_->showCanMonitor(true);
+  }
+}
+
+void UiManager::onCanMonitorSendButton(lv_event_t *e) {
+  (void)e;
+  if (instance_ != nullptr) {
+    instance_->queueAction(UI_ACTION_SEND_TEST_CAN);
   }
 }
 

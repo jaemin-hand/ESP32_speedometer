@@ -29,64 +29,39 @@ bool isReasonableSpeed(float speedKmh) {
   return isfinite(speedKmh) && speedKmh >= 0.0f && speedKmh <= 400.0f;
 }
 
-twai_timing_config_t makeCustom500K87Timing() {
-  return {
-      .clk_src = TWAI_CLK_SRC_DEFAULT,
-      .quanta_resolution_hz = 0,
-      .brp = 10,
-      .prop_seg = 0,
-      .tseg_1 = 13,
-      .tseg_2 = 2,
-      .sjw = 1,
-      .ssp_offset = 0,
-      .triple_sampling = false,
-  };
-}
-
 }  // namespace
 
 bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
   initialized_ = false;
-  bool usingDefaultTiming = false;
   const twai_mode_t twaiMode =
       kCanListenOnlyDiagnosticMode ? TWAI_MODE_LISTEN_ONLY : TWAI_MODE_NORMAL;
   twai_general_config_t gConfig =
       TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, twaiMode);
-  twai_filter_config_t fConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
-  twai_timing_config_t tConfig = makeCustom500K87Timing();
+  twai_timing_config_t tConfig = TWAI_TIMING_CONFIG_500KBITS();
+
+  // Restore the last known-good init path from commit 57a26fbd.
+  twai_filter_config_t fConfig = {};
+  fConfig.acceptance_code = (0x100 << 21);
+  fConfig.acceptance_mask = ~(0x7FF << 21);
+  fConfig.single_filter = true;
 
   Serial.printf(
       "TWAI mode: %s\n",
       kCanListenOnlyDiagnosticMode ? "LISTEN_ONLY" : "NORMAL");
-  Serial.println("TWAI timing: trying custom 500 kbps / 87.5% sample point");
+  Serial.println("TWAI timing: using known-good 500 kbps timing from 57a26fbd");
+  Serial.printf(
+      "TWAI filter: code=0x%08lX mask=0x%08lX single=%d\n",
+      static_cast<unsigned long>(fConfig.acceptance_code),
+      static_cast<unsigned long>(fConfig.acceptance_mask),
+      static_cast<int>(fConfig.single_filter));
 
   if (twai_driver_install(&gConfig, &tConfig, &fConfig) != ESP_OK) {
-    Serial.println("TWAI custom timing install failed, retrying default 500 kbps timing");
-    tConfig = TWAI_TIMING_CONFIG_500KBITS();
-    usingDefaultTiming = true;
-    if (twai_driver_install(&gConfig, &tConfig, &fConfig) != ESP_OK) {
-      return false;
-    }
+    return false;
   }
 
   if (twai_start() != ESP_OK) {
     twai_driver_uninstall();
-    Serial.println("TWAI custom timing start failed, retrying default 500 kbps timing");
-    tConfig = TWAI_TIMING_CONFIG_500KBITS();
-    usingDefaultTiming = true;
-    if (twai_driver_install(&gConfig, &tConfig, &fConfig) != ESP_OK) {
-      return false;
-    }
-    if (twai_start() != ESP_OK) {
-      twai_driver_uninstall();
-      return false;
-    }
-  }
-
-  if (usingDefaultTiming) {
-    Serial.println("TWAI timing: using default 500 kbps timing");
-  } else {
-    Serial.println("TWAI timing: using custom 500 kbps / 87.5% sample point");
+    return false;
   }
 
   initialized_ = true;

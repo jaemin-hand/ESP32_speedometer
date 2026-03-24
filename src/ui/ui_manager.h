@@ -29,6 +29,7 @@ private:
   static void onDistancePanel(lv_event_t *e);
   static void onTimePanel(lv_event_t *e);
   static void onCanMonitorButton(lv_event_t *e);
+  static void onCanMonitorSendButton(lv_event_t *e);
   static void onCanMonitorBackButton(lv_event_t *e);
   static void onResetButton(lv_event_t *e);
 
@@ -74,6 +75,7 @@ private:
   lv_obj_t *buttonReset_ = nullptr;
   lv_obj_t *overlayCanMonitor_ = nullptr;
   lv_obj_t *labelCanMonitorText_ = nullptr;
+  lv_obj_t *buttonCanMonitorSend_ = nullptr;
   lv_obj_t *buttonCanMonitorBack_ = nullptr;
 
   lv_obj_t *labelExtValue_ = nullptr;
