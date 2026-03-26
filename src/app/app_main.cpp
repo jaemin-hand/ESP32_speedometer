@@ -24,7 +24,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-26_08_AUTO_STATUS";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-26_11_AUTO_GNSS_TIMEOUT";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label

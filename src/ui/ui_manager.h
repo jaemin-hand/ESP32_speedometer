@@ -50,6 +50,16 @@ private:
   void toggleTimeMode();
   void showCanMonitor(bool visible);
   void setCellHighlight(lv_obj_t *cell, bool active);
+  void updateUtcAnchor(const char *utcText);
+  bool tryFormatAnchoredUtc(char *timeBuf, size_t timeBufSize) const;
+  void updateSpeedDisplay(
+      lv_obj_t *valueLabel,
+      lv_obj_t *unitLabel,
+      float incomingSpeedKmh,
+      bool valid,
+      DisplayUnit unit,
+      float &lastValidSpeedKmh,
+      bool &hasLastValidSpeed);
   void formatSpeed(char *valueBuf, size_t valueBufSize, float speedKmh, bool valid, DisplayUnit unit) const;
   void formatDistance(char *valueBuf, size_t valueBufSize, char *unitBuf, size_t unitBufSize, double distanceMeters) const;
   void formatTime(char *timeBuf, size_t timeBufSize, const UiSnapshot &snapshot) const;
@@ -92,6 +102,17 @@ private:
   lv_obj_t *labelSatsValue_ = nullptr;
   lv_obj_t *labelModeStatus_ = nullptr;
   lv_obj_t *labelUsingStatus_ = nullptr;
+
+  float lastExtSpeedKmh_ = 0.0f;
+  float lastGpsSpeedKmh_ = 0.0f;
+  float lastCanSpeedKmh_ = 0.0f;
+  bool hasLastExtSpeed_ = false;
+  bool hasLastGpsSpeed_ = false;
+  bool hasLastCanSpeed_ = false;
+  bool hasUtcAnchor_ = false;
+  uint32_t utcAnchorMs_ = 0;
+  uint32_t utcAnchorSecondsOfDay_ = 0;
+  char lastUtcSource_[9] = {0};
 };
 
 

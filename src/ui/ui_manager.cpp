@@ -1,5 +1,6 @@
 ﻿#include "ui_manager.h"
 
+#include <Arduino.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -10,6 +11,8 @@ constexpr float KMH_TO_MPH = 0.621371f;
 constexpr double METERS_TO_MILES = 0.000621371192;
 constexpr lv_coord_t TIME_CHAR_WIDTH = 31;
 constexpr lv_coord_t TIME_CHAR_HEIGHT = 92;
+constexpr uint32_t LIVE_TEXT_COLOR = 0xFFFFFF;
+constexpr uint32_t STALE_TEXT_COLOR = 0x5A5A5A;
 
 const char *modeToText(SpeedSourceMode mode) {
   switch (mode) {
@@ -295,17 +298,32 @@ void UiManager::update(const UiSnapshot &snapshot) {
   char valueBuf[32];
   char unitBuf[16];
 
-  formatSpeed(valueBuf, sizeof(valueBuf), snapshot.extSpeedKmh, snapshot.extValid, extUnit_);
-  lv_label_set_text(labelExtValue_, valueBuf);
-  lv_label_set_text(labelExtUnit_, extUnit_ == DISPLAY_UNIT_KMH ? "km/h" : "mph");
+  updateUtcAnchor(snapshot.gps.timeStr);
 
-  formatSpeed(valueBuf, sizeof(valueBuf), snapshot.gpsSpeedKmh, snapshot.gpsValid, gpsUnit_);
-  lv_label_set_text(labelGpsValue_, valueBuf);
-  lv_label_set_text(labelGpsUnit_, gpsUnit_ == DISPLAY_UNIT_KMH ? "km/h" : "mph");
-
-  formatSpeed(valueBuf, sizeof(valueBuf), snapshot.canSpeedKmh, snapshot.canValid, canUnit_);
-  lv_label_set_text(labelCanValue_, valueBuf);
-  lv_label_set_text(labelCanUnit_, canUnit_ == DISPLAY_UNIT_KMH ? "km/h" : "mph");
+  updateSpeedDisplay(
+      labelExtValue_,
+      labelExtUnit_,
+      snapshot.extSpeedKmh,
+      snapshot.extValid,
+      extUnit_,
+      lastExtSpeedKmh_,
+      hasLastExtSpeed_);
+  updateSpeedDisplay(
+      labelGpsValue_,
+      labelGpsUnit_,
+      snapshot.gpsSpeedKmh,
+      snapshot.gpsValid,
+      gpsUnit_,
+      lastGpsSpeedKmh_,
+      hasLastGpsSpeed_);
+  updateSpeedDisplay(
+      labelCanValue_,
+      labelCanUnit_,
+      snapshot.canSpeedKmh,
+      snapshot.canValid,
+      canUnit_,
+      lastCanSpeedKmh_,
+      hasLastCanSpeed_);
 
   formatDistance(valueBuf, sizeof(valueBuf), unitBuf, sizeof(unitBuf), snapshot.distanceMeters);
   const bool distanceValueChanged = strcmp(lv_label_get_text(labelDistanceValue_), valueBuf) != 0;
@@ -486,6 +504,88 @@ void UiManager::setCellHighlight(lv_obj_t *cell, bool active) {
   lv_obj_set_style_border_width(cell, active ? 5 : 2, 0);
 }
 
+void UiManager::updateUtcAnchor(const char *utcText) {
+  if ((utcText == nullptr) || (strlen(utcText) < 8U)) {
+    return;
+  }
+
+  if (strncmp(utcText, lastUtcSource_, sizeof(lastUtcSource_) - 1U) == 0) {
+    return;
+  }
+
+  unsigned hour = 0;
+  unsigned minute = 0;
+  unsigned second = 0;
+  if (sscanf(utcText, "%2u:%2u:%2u", &hour, &minute, &second) != 3) {
+    return;
+  }
+
+  if ((hour > 23U) || (minute > 59U) || (second > 59U)) {
+    return;
+  }
+
+  utcAnchorSecondsOfDay_ = (hour * 3600U) + (minute * 60U) + second;
+  utcAnchorMs_ = millis();
+  hasUtcAnchor_ = true;
+  snprintf(lastUtcSource_, sizeof(lastUtcSource_), "%s", utcText);
+}
+
+bool UiManager::tryFormatAnchoredUtc(char *timeBuf, size_t timeBufSize) const {
+  if (!hasUtcAnchor_) {
+    return false;
+  }
+
+  const uint32_t elapsedSeconds = (millis() - utcAnchorMs_) / 1000U;
+  const uint32_t totalSeconds = (utcAnchorSecondsOfDay_ + elapsedSeconds) % 86400U;
+  const uint32_t hour = totalSeconds / 3600U;
+  const uint32_t minute = (totalSeconds / 60U) % 60U;
+  const uint32_t second = totalSeconds % 60U;
+
+  snprintf(
+      timeBuf,
+      timeBufSize,
+      "%02lu:%02lu:%02lu",
+      static_cast<unsigned long>(hour),
+      static_cast<unsigned long>(minute),
+      static_cast<unsigned long>(second));
+  return true;
+}
+
+void UiManager::updateSpeedDisplay(
+    lv_obj_t *valueLabel,
+    lv_obj_t *unitLabel,
+    float incomingSpeedKmh,
+    bool valid,
+    DisplayUnit unit,
+    float &lastValidSpeedKmh,
+    bool &hasLastValidSpeed) {
+  if ((valueLabel == nullptr) || (unitLabel == nullptr)) {
+    return;
+  }
+
+  bool staleDisplay = false;
+  float displaySpeedKmh = incomingSpeedKmh;
+
+  if (valid) {
+    lastValidSpeedKmh = incomingSpeedKmh;
+    hasLastValidSpeed = true;
+  } else if (hasLastValidSpeed) {
+    displaySpeedKmh = lastValidSpeedKmh;
+    staleDisplay = true;
+    valid = true;
+  }
+
+  char valueBuf[32];
+  formatSpeed(valueBuf, sizeof(valueBuf), displaySpeedKmh, valid, unit);
+  lv_label_set_text(valueLabel, valueBuf);
+  lv_label_set_text(unitLabel, unit == DISPLAY_UNIT_KMH ? "km/h" : "mph");
+
+  const lv_color_t textColor =
+      lv_color_hex(staleDisplay ? STALE_TEXT_COLOR : LIVE_TEXT_COLOR);
+  lv_obj_set_style_text_color(valueLabel, textColor, 0);
+  lv_obj_set_style_text_color(unitLabel, textColor, 0);
+}
+
 void UiManager::formatSpeed(
     char *valueBuf,
     size_t valueBufSize,
@@ -519,7 +619,15 @@ void UiManager::formatDistance(
 
 void UiManager::formatTime(char *timeBuf, size_t timeBufSize, const UiSnapshot &snapshot) const {
   if (timeMode_ == TIME_DISPLAY_UTC) {
-    snprintf(timeBuf, timeBufSize, "%s", strlen(snapshot.gps.timeStr) ? snapshot.gps.timeStr : "--:--:--");
+    if (tryFormatAnchoredUtc(timeBuf, timeBufSize)) {
+      return;
+    }
+
+    snprintf(
+        timeBuf,
+        timeBufSize,
+        "%s",
+        strlen(snapshot.gps.timeStr) ? snapshot.gps.timeStr : "--:--:--");
     return;
   }
 
