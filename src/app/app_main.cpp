@@ -24,7 +24,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-25_05_RESTORE_57A26FBD";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-26_06_LEGACY_CAN_PATH";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label

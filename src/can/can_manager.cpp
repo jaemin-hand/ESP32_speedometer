@@ -6,8 +6,6 @@
 
 namespace {
 
-constexpr bool kCanListenOnlyDiagnosticMode = false;
-
 // Replace this template entry with the actual speed signal decoded from
 // canAnalyser. Example: ID 0x123, bytes 0-1 little-endian, scale 0.01 km/h.
 constexpr CanSpeedDecoderConfig kSpeedDecoders[] = {
@@ -33,27 +31,22 @@ bool isReasonableSpeed(float speedKmh) {
 
 bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
   initialized_ = false;
-  const twai_mode_t twaiMode =
-      kCanListenOnlyDiagnosticMode ? TWAI_MODE_LISTEN_ONLY : TWAI_MODE_NORMAL;
   twai_general_config_t gConfig =
-      TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, twaiMode);
+      TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, TWAI_MODE_NORMAL);
   twai_timing_config_t tConfig = TWAI_TIMING_CONFIG_500KBITS();
+  twai_filter_config_t fConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
-  // Restore the last known-good init path from commit 57a26fbd.
-  twai_filter_config_t fConfig = {};
-  fConfig.acceptance_code = (0x100 << 21);
-  fConfig.acceptance_mask = ~(0x7FF << 21);
-  fConfig.single_filter = true;
+  lastRxMs_ = 0;
+  decodedSpeedTimeoutMs_ = 0;
+  decodedSpeed_ = {};
+  nextMonitorLineIndex_ = 0;
+  monitorWrapped_ = false;
+  memset(monitorLines_, 0, sizeof(monitorLines_));
+  snprintf(monitorText_, sizeof(monitorText_), "Waiting for CAN data...");
 
-  Serial.printf(
-      "TWAI mode: %s\n",
-      kCanListenOnlyDiagnosticMode ? "LISTEN_ONLY" : "NORMAL");
-  Serial.println("TWAI timing: using known-good 500 kbps timing from 57a26fbd");
-  Serial.printf(
-      "TWAI filter: code=0x%08lX mask=0x%08lX single=%d\n",
-      static_cast<unsigned long>(fConfig.acceptance_code),
-      static_cast<unsigned long>(fConfig.acceptance_mask),
-      static_cast<int>(fConfig.single_filter));
+  Serial.println("TWAI mode: NORMAL");
+  Serial.println("TWAI timing: legacy default 500 kbps");
+  Serial.println("TWAI filter: ACCEPT_ALL");
 
   if (twai_driver_install(&gConfig, &tConfig, &fConfig) != ESP_OK) {
     return false;
