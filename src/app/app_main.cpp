@@ -1,4 +1,4 @@
-#pragma GCC push_options
+﻿#pragma GCC push_options
 #pragma GCC optimize("O3")
 
 #include "app_main.h"
@@ -24,7 +24,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-26_07_CAN_DECODER_450";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-26_08_AUTO_STATUS";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -275,3 +275,4 @@ void appLoop() {
 }
 
 #pragma GCC pop_options
+

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <Arduino.h>
 #include "driver/twai.h"
@@ -69,6 +69,7 @@ private:
   bool tryDecodeSpeed(const twai_message_t &rxMessage, uint32_t nowMs);
 
   uint32_t lastRxMs_ = 0;
+  uint32_t lastRawPrintMs_ = 0;
   uint32_t decodedSpeedTimeoutMs_ = 0;
   CanDecodedSpeedState decodedSpeed_;
   char monitorLines_[kMonitorLineCount][kMonitorLineLength] = {};
@@ -77,3 +78,6 @@ private:
   bool monitorWrapped_ = false;
   bool initialized_ = false;
 };
+
+
+

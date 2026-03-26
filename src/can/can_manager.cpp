@@ -1,4 +1,4 @@
-#include "can_manager.h"
+﻿#include "can_manager.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -45,6 +45,12 @@ bool isReasonableSpeed(float speedKmh) {
   return isfinite(speedKmh) && speedKmh >= 0.0f && speedKmh <= 400.0f;
 }
 
+// Keep CAN RX processing cooperative with the rest of the app.
+// If we drain the bus indefinitely while replay traffic is active,
+// GNSS/time/UI updates appear to "freeze" because appLoop cannot return.
+constexpr uint8_t kMaxFramesPerPoll = 8;
+constexpr uint32_t kRawCanPrintIntervalMs = 100;
+
 }  // namespace
 
 bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
@@ -58,6 +64,7 @@ bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
   // Reset runtime state on every re-init so the monitor and decode state do
   // not carry stale values across driver restarts.
   lastRxMs_ = 0;
+  lastRawPrintMs_ = 0;
   decodedSpeedTimeoutMs_ = 0;
   decodedSpeed_ = {};
   nextMonitorLineIndex_ = 0;
@@ -91,17 +98,26 @@ void CanManager::poll(uint32_t nowMs) {
     return;
   }
 
-  // Match the legacy sketch's direct polling style: drain all available frames
-  // without blocking. Everything else in this method is side-effect-free
-  // bookkeeping on top of that known-good receive path.
+  // Process only a bounded number of frames per app loop iteration.
+  // This keeps GNSS/time/LVGL updates responsive even when a CAN replay tool is
+  // blasting traffic continuously.
   twai_message_t rxMessage;
-  while (twai_receive(&rxMessage, pdMS_TO_TICKS(0)) == ESP_OK) {
+  uint8_t framesProcessed = 0;
+  while ((framesProcessed < kMaxFramesPerPoll) &&
+         (twai_receive(&rxMessage, pdMS_TO_TICKS(0)) == ESP_OK)) {
     char monitorLine[kMonitorLineLength] = {0};
     lastRxMs_ = nowMs;
     formatMonitorLine(rxMessage, monitorLine, sizeof(monitorLine));
-    Serial.printf("CAN RX: %s\n", monitorLine);
+
+    if ((lastRawPrintMs_ == 0U) ||
+        ((nowMs - lastRawPrintMs_) >= kRawCanPrintIntervalMs)) {
+      Serial.printf("CAN RX: %s\n", monitorLine);
+      lastRawPrintMs_ = nowMs;
+    }
+
     appendMonitorLine(rxMessage);
     tryDecodeSpeed(rxMessage, nowMs);
+    ++framesProcessed;
   }
 
   if (decodedSpeed_.valid &&
@@ -323,3 +339,6 @@ bool CanManager::tryDecodeSpeed(const twai_message_t &rxMessage, uint32_t nowMs)
 
   return false;
 }
+
+
+

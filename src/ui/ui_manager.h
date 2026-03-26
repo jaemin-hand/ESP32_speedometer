@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <stdint.h>
 
@@ -90,4 +90,8 @@ private:
   lv_obj_t *timeValueBox_ = nullptr;
   lv_obj_t *labelTimeChars_[kTimeCharSlots] = {};
   lv_obj_t *labelSatsValue_ = nullptr;
+  lv_obj_t *labelModeStatus_ = nullptr;
+  lv_obj_t *labelUsingStatus_ = nullptr;
 };
+
+

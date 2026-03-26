@@ -1,4 +1,4 @@
-#include "ui_manager.h"
+﻿#include "ui_manager.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -10,6 +10,25 @@ constexpr float KMH_TO_MPH = 0.621371f;
 constexpr double METERS_TO_MILES = 0.000621371192;
 constexpr lv_coord_t TIME_CHAR_WIDTH = 31;
 constexpr lv_coord_t TIME_CHAR_HEIGHT = 92;
+
+const char *modeToText(SpeedSourceMode mode) {
+  switch (mode) {
+    case SPEED_MODE_AUTO: return "AUTO";
+    case SPEED_MODE_GNSS: return "GNSS";
+    case SPEED_MODE_CAN: return "CAN";
+    case SPEED_MODE_EXT: return "EXT";
+    default: return "UNKNOWN";
+  }
+}
+
+const char *sourceToText(SpeedSource source) {
+  switch (source) {
+    case SPEED_SOURCE_GNSS: return "GNSS";
+    case SPEED_SOURCE_CAN: return "CAN";
+    case SPEED_SOURCE_EXT: return "EXT";
+    default: return "NONE";
+  }
+}
 
 #if LV_FONT_MONTSERRAT_48
   #define FONT_NUMBER (&lv_font_montserrat_48)
@@ -164,6 +183,18 @@ void UiManager::begin() {
   lv_obj_set_style_text_font(labelSatsTitle, FONT_TITLE, 0);
   lv_obj_set_pos(labelSatsTitle, 232, 106);
 
+  labelModeStatus_ = lv_label_create(cellSats_);
+  lv_label_set_text(labelModeStatus_, "MODE AUTO");
+  lv_obj_set_style_text_color(labelModeStatus_, lv_color_hex(0x82ff3f), 0);
+  lv_obj_set_style_text_font(labelModeStatus_, FONT_UNIT, 0);
+  lv_obj_set_pos(labelModeStatus_, 24, 18);
+
+  labelUsingStatus_ = lv_label_create(cellSats_);
+  lv_label_set_text(labelUsingStatus_, "USING NONE");
+  lv_obj_set_style_text_color(labelUsingStatus_, lv_color_white(), 0);
+  lv_obj_set_style_text_font(labelUsingStatus_, FONT_UNIT, 0);
+  lv_obj_set_pos(labelUsingStatus_, 24, 56);
+
   labelSatsValue_ = lv_label_create(cellSats_);
   lv_label_set_text(labelSatsValue_, "0");
   lv_obj_set_style_text_color(labelSatsValue_, lv_color_hex(0xd8f7ff), 0);
@@ -294,6 +325,15 @@ void UiManager::update(const UiSnapshot &snapshot) {
   snprintf(valueBuf, sizeof(valueBuf), "%d", snapshot.gps.satellites > 99 ? 99 : snapshot.gps.satellites);
   lv_label_set_text(labelSatsValue_, valueBuf);
   lv_label_set_text(labelCanMonitorText_, snapshot.canMonitorText[0] ? snapshot.canMonitorText : "Waiting for CAN data...");
+
+  if (labelModeStatus_ != nullptr) {
+    snprintf(valueBuf, sizeof(valueBuf), "MODE %s", modeToText(snapshot.sourceMode));
+    lv_label_set_text(labelModeStatus_, valueBuf);
+  }
+  if (labelUsingStatus_ != nullptr) {
+    snprintf(valueBuf, sizeof(valueBuf), "USING %s", sourceToText(snapshot.selectedSource));
+    lv_label_set_text(labelUsingStatus_, valueBuf);
+  }
 
   const SpeedSource highlightedSource = getHighlightedSource(snapshot);
   setCellHighlight(cellExt_, highlightedSource == SPEED_SOURCE_EXT);
@@ -548,3 +588,4 @@ SpeedSource UiManager::getHighlightedSource(const UiSnapshot &snapshot) const {
       return snapshot.selectedSource;
   }
 }
+
