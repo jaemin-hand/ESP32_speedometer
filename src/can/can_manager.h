@@ -35,6 +35,13 @@ public:
   static constexpr size_t kMonitorLineLength = 48;
   static constexpr size_t kMonitorTextSize = (kMonitorLineCount * kMonitorLineLength) + 32;
 
+  // Legacy-baseline CAN bring-up:
+  // - NORMAL mode
+  // - default 500 kbps timing
+  // - raw receive monitor always active
+  //
+  // Additional features such as decoded speed are layered on top and must not
+  // break the basic send/receive path.
   bool begin(gpio_num_t txPin, gpio_num_t rxPin);
   void poll(uint32_t nowMs);
   bool isInitialized() const;

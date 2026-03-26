@@ -6,20 +6,38 @@
 
 namespace {
 
-// Replace this template entry with the actual speed signal decoded from
-// canAnalyser. Example: ID 0x123, bytes 0-1 little-endian, scale 0.01 km/h.
+// Keep the current CAN path intentionally close to the last known-good
+// legacy sketch:
+//   - TWAI_MODE_NORMAL
+//   - default 500 kbps timing
+//   - direct non-blocking receive loop
+//
+// The only deliberate difference is the filter:
+// the legacy sketch used a restrictive 0x100-only filter, but the current UI
+// has a raw CAN monitor and we want to see all incoming frames while bringing
+// the app back up. Once the receive path is stable, we can tighten the filter
+// again if needed.
+
+// First enabled decoder uses the SantaFe replay candidate that matched earlier
+// offline analysis:
+//   - ID 0x450
+//   - standard frame
+//   - byte0 = speed in km/h
+//
+// Keep the table-based structure so we can add more vehicle profiles later
+// without touching the raw receive path again.
 constexpr CanSpeedDecoderConfig kSpeedDecoders[] = {
     {
-        false,
-        "speed_template",
-        0x000,
+        true,
+        "santafe_replay_speed",
+        0x450,
         false,
         0,
-        2,
+        1,
         CAN_SIGNAL_LITTLE_ENDIAN,
-        0.01f,
+        1.0f,
         0.0f,
-        200,
+        250,
     },
 };
 
@@ -31,11 +49,14 @@ bool isReasonableSpeed(float speedKmh) {
 
 bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
   initialized_ = false;
+
   twai_general_config_t gConfig =
       TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, TWAI_MODE_NORMAL);
   twai_timing_config_t tConfig = TWAI_TIMING_CONFIG_500KBITS();
   twai_filter_config_t fConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
 
+  // Reset runtime state on every re-init so the monitor and decode state do
+  // not carry stale values across driver restarts.
   lastRxMs_ = 0;
   decodedSpeedTimeoutMs_ = 0;
   decodedSpeed_ = {};
@@ -44,9 +65,9 @@ bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
   memset(monitorLines_, 0, sizeof(monitorLines_));
   snprintf(monitorText_, sizeof(monitorText_), "Waiting for CAN data...");
 
-  Serial.println("TWAI mode: NORMAL");
-  Serial.println("TWAI timing: legacy default 500 kbps");
-  Serial.println("TWAI filter: ACCEPT_ALL");
+  Serial.println("TWAI mode: NORMAL (legacy baseline)");
+  Serial.println("TWAI timing: default 500 kbps (legacy baseline)");
+  Serial.println("TWAI filter: ACCEPT_ALL (monitor all incoming IDs)");
 
   if (twai_driver_install(&gConfig, &tConfig, &fConfig) != ESP_OK) {
     return false;
@@ -70,6 +91,9 @@ void CanManager::poll(uint32_t nowMs) {
     return;
   }
 
+  // Match the legacy sketch's direct polling style: drain all available frames
+  // without blocking. Everything else in this method is side-effect-free
+  // bookkeeping on top of that known-good receive path.
   twai_message_t rxMessage;
   while (twai_receive(&rxMessage, pdMS_TO_TICKS(0)) == ESP_OK) {
     char monitorLine[kMonitorLineLength] = {0};
@@ -93,6 +117,8 @@ bool CanManager::sendTestFrame() {
     return false;
   }
 
+  // Keep the same test frame used in the legacy sketch so PC-side captures and
+  // past notes remain directly comparable.
   twai_message_t txMessage = {};
   txMessage.identifier = 0x777;
   txMessage.extd = 0;
@@ -256,6 +282,9 @@ void CanManager::rebuildMonitorText() {
 }
 
 bool CanManager::tryDecodeSpeed(const twai_message_t &rxMessage, uint32_t nowMs) {
+  // Speed decoding is optional and sits on top of the raw receive path.
+  // Even when no decoder is enabled, CAN RX logging/monitoring should still
+  // work exactly like the legacy receive loop.
   for (const CanSpeedDecoderConfig &config : kSpeedDecoders) {
     if (!config.enabled) {
       continue;
