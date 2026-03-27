@@ -1,10 +1,12 @@
-#include "can_manager.h"
+﻿#include "can_manager.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "../app/app_config.h"
 #include "can_fd_backend.h"
+#include "can_profiles.h"
 #include "classic_can_backend.h"
 
 namespace {
@@ -23,29 +25,6 @@ CanFdBackend gCanFdBackend;
 // has a raw CAN monitor and we want to see all incoming frames while bringing
 // the app back up. Once the receive path is stable, we can tighten the filter
 // again if needed.
-
-// First enabled decoder uses the SantaFe replay candidate that matched earlier
-// offline analysis:
-//   - ID 0x450
-//   - standard frame
-//   - byte0 = speed in km/h
-//
-// Keep the table-based structure so we can add more vehicle profiles later
-// without touching the raw receive path again.
-constexpr CanSpeedDecoderConfig kSpeedDecoders[] = {
-    {
-        true,
-        "santafe_replay_speed",
-        0x450,
-        false,
-        0,
-        1,
-        CAN_SIGNAL_LITTLE_ENDIAN,
-        1.0f,
-        0.0f,
-        250,
-    },
-};
 
 bool isReasonableSpeed(float speedKmh) {
   return isfinite(speedKmh) && speedKmh >= 0.0f && speedKmh <= 400.0f;
@@ -73,13 +52,21 @@ ICanBackend *selectBackend(CanBackendType backendType) {
 bool CanManager::begin(
     gpio_num_t txPin,
     gpio_num_t rxPin,
-    CanBackendType backendType) {
+    CanBackendType backendType,
+    CanProfileId profileId) {
   if (backend_ != nullptr) {
     backend_->end();
   }
 
   initialized_ = false;
-  backendType_ = backendType;
+  profile_ = &getCanProfile(profileId);
+  backendType_ = profile_->backendType;
+  if (backendType != backendType_) {
+    Serial.printf(
+        "CAN profile '%s' overrides requested backend and uses %s\n",
+        profile_->name,
+        (backendType_ == CAN_BACKEND_CLASSIC) ? "CLASSIC_CAN" : "CAN_FD");
+  }
   backend_ = selectBackend(backendType_);
   if (backend_ == nullptr) {
     return false;
@@ -99,6 +86,13 @@ bool CanManager::begin(
   const CanBackendOptions options = {
       .txPin = txPin,
       .rxPin = rxPin,
+      .spiSckPin = AppConfig::kCanFdSpiSckPin,
+      .spiMosiPin = AppConfig::kCanFdSpiMosiPin,
+      .spiMisoPin = AppConfig::kCanFdSpiMisoPin,
+      .spiCsPin = AppConfig::kCanFdSpiCsPin,
+      .irqPin = AppConfig::kCanFdIrqPin,
+      .resetPin = AppConfig::kCanFdResetPin,
+      .standbyPin = AppConfig::kCanFdStandbyPin,
   };
   if (!backend_->begin(options)) {
     backend_ = nullptr;
@@ -121,6 +115,30 @@ const char *CanManager::getBackendName() const {
   return (backend_ != nullptr) ? backend_->backendName() : "NONE";
 }
 
+CanProfileId CanManager::getProfileId() const {
+  return (profile_ != nullptr) ? profile_->id : CAN_PROFILE_SANTAFE_CLASSIC;
+}
+
+const char *CanManager::getProfileName() const {
+  return (profile_ != nullptr) ? profile_->name : "NONE";
+}
+
+CanBackendCapabilities CanManager::getBackendCapabilities() const {
+  return (backend_ != nullptr) ? backend_->capabilities() : CanBackendCapabilities{};
+}
+
+CanBackendRequirements CanManager::getBackendRequirements() const {
+  return (backend_ != nullptr) ? backend_->requirements() : CanBackendRequirements{};
+}
+
+const char *CanManager::getBackendDiagnosticText() const {
+  return (backend_ != nullptr) ? backend_->diagnosticText() : "CAN backend not selected";
+}
+
+const char *CanManager::getProfileBringupNote() const {
+  return (profile_ != nullptr) ? profile_->bringupNote : "CAN profile note unavailable";
+}
+
 void CanManager::poll(uint32_t nowMs) {
   if (!initialized_ || (backend_ == nullptr)) {
     return;
@@ -129,13 +147,13 @@ void CanManager::poll(uint32_t nowMs) {
   // Process only a bounded number of frames per app loop iteration.
   // This keeps GNSS/time/LVGL updates responsive even when a CAN replay tool is
   // blasting traffic continuously.
-  twai_message_t rxMessage;
+  CanFrame rxFrame;
   uint8_t framesProcessed = 0;
   while ((framesProcessed < kMaxFramesPerPoll) &&
-         backend_->receive(&rxMessage)) {
+         backend_->receive(&rxFrame)) {
     char monitorLine[kMonitorLineLength] = {0};
     lastRxMs_ = nowMs;
-    formatMonitorLine(rxMessage, monitorLine, sizeof(monitorLine));
+    formatMonitorLine(rxFrame, monitorLine, sizeof(monitorLine));
 
     if ((lastRawPrintMs_ == 0U) ||
         ((nowMs - lastRawPrintMs_) >= kRawCanPrintIntervalMs)) {
@@ -143,8 +161,8 @@ void CanManager::poll(uint32_t nowMs) {
       lastRawPrintMs_ = nowMs;
     }
 
-    appendMonitorLine(rxMessage);
-    tryDecodeSpeed(rxMessage, nowMs);
+    appendMonitorLine(rxFrame);
+    tryDecodeSpeed(rxFrame, nowMs);
     ++framesProcessed;
   }
 
@@ -163,16 +181,18 @@ bool CanManager::sendTestFrame() {
 
   // Keep the same test frame used in the legacy sketch so PC-side captures and
   // past notes remain directly comparable.
-  twai_message_t txMessage = {};
-  txMessage.identifier = 0x777;
-  txMessage.extd = 0;
-  txMessage.data_length_code = 4;
-  txMessage.data[0] = 0x01;
-  txMessage.data[1] = 0x02;
-  txMessage.data[2] = 0x03;
-  txMessage.data[3] = 0x04;
+  CanFrame txFrame;
+  txFrame.identifier = 0x777;
+  txFrame.extended = false;
+  txFrame.fdFormat = false;
+  txFrame.bitrateSwitch = false;
+  txFrame.dataLength = 4;
+  txFrame.data[0] = 0x01;
+  txFrame.data[1] = 0x02;
+  txFrame.data[2] = 0x03;
+  txFrame.data[3] = 0x04;
 
-  return backend_->transmit(txMessage, pdMS_TO_TICKS(100));
+  return backend_->transmit(txFrame, pdMS_TO_TICKS(100));
 }
 
 bool CanManager::isLinkAlive(uint32_t nowMs, uint32_t aliveWindowMs) const {
@@ -246,9 +266,9 @@ uint32_t CanManager::readUnsignedValue(
   return value;
 }
 
-void CanManager::appendMonitorLine(const twai_message_t &rxMessage) {
+void CanManager::appendMonitorLine(const CanFrame &rxFrame) {
   char monitorLine[kMonitorLineLength] = {0};
-  formatMonitorLine(rxMessage, monitorLine, sizeof(monitorLine));
+  formatMonitorLine(rxFrame, monitorLine, sizeof(monitorLine));
 
   snprintf(
       monitorLines_[nextMonitorLineIndex_],
@@ -265,7 +285,7 @@ void CanManager::appendMonitorLine(const twai_message_t &rxMessage) {
 }
 
 void CanManager::formatMonitorLine(
-    const twai_message_t &rxMessage,
+    const CanFrame &rxFrame,
     char *lineBuf,
     size_t lineBufSize) {
   if ((lineBuf == nullptr) || (lineBufSize == 0U)) {
@@ -274,12 +294,13 @@ void CanManager::formatMonitorLine(
 
   char dataText[3 * 8 + 1] = {0};
   size_t offset = 0;
-  for (uint8_t i = 0; i < rxMessage.data_length_code && i < 8; ++i) {
+  const uint8_t shownBytes = (rxFrame.dataLength < 8U) ? rxFrame.dataLength : 8U;
+  for (uint8_t i = 0; i < shownBytes; ++i) {
     offset += static_cast<size_t>(snprintf(
         dataText + offset,
         sizeof(dataText) - offset,
         (i == 0) ? "%02X" : " %02X",
-        rxMessage.data[i]));
+        rxFrame.data[i]));
     if (offset >= sizeof(dataText)) {
       break;
     }
@@ -288,9 +309,10 @@ void CanManager::formatMonitorLine(
   snprintf(
       lineBuf,
       lineBufSize,
-      "0x%03X [%d] %s",
-      rxMessage.identifier,
-      rxMessage.data_length_code,
+      "0x%03X [%d%s] %s",
+      rxFrame.identifier,
+      rxFrame.dataLength,
+      rxFrame.fdFormat ? "FD" : "",
       dataText);
 }
 
@@ -325,29 +347,37 @@ void CanManager::rebuildMonitorText() {
   }
 }
 
-bool CanManager::tryDecodeSpeed(const twai_message_t &rxMessage, uint32_t nowMs) {
+bool CanManager::tryDecodeSpeed(const CanFrame &rxFrame, uint32_t nowMs) {
   // Speed decoding is optional and sits on top of the raw receive path.
   // Even when no decoder is enabled, CAN RX logging/monitoring should still
   // work exactly like the legacy receive loop.
-  for (const CanSpeedDecoderConfig &config : kSpeedDecoders) {
+  if ((profile_ == nullptr) || (profile_->speedDecoders == nullptr)) {
+    return false;
+  }
+
+  for (size_t i = 0; i < profile_->speedDecoderCount; ++i) {
+    const CanSpeedDecoderConfig &config = profile_->speedDecoders[i];
     if (!config.enabled) {
       continue;
     }
-    if (config.identifier != rxMessage.identifier) {
+    if (config.identifier != rxFrame.identifier) {
       continue;
     }
-    if (config.extended != (rxMessage.extd != 0)) {
+    if (config.fdFormat != rxFrame.fdFormat) {
+      continue;
+    }
+    if (config.extended != rxFrame.extended) {
       continue;
     }
     if (config.lengthBytes == 0U) {
       continue;
     }
-    if ((config.startByte + config.lengthBytes) > rxMessage.data_length_code) {
+    if ((config.startByte + config.lengthBytes) > rxFrame.dataLength) {
       continue;
     }
 
     const uint32_t rawValue = readUnsignedValue(
-        rxMessage.data,
+        rxFrame.data,
         config.startByte,
         config.lengthBytes,
         config.endian);
@@ -358,7 +388,7 @@ bool CanManager::tryDecodeSpeed(const twai_message_t &rxMessage, uint32_t nowMs)
 
     decodedSpeed_.valid = true;
     decodedSpeed_.speedKmh = speedKmh;
-    decodedSpeed_.identifier = rxMessage.identifier;
+    decodedSpeed_.identifier = rxFrame.identifier;
     decodedSpeed_.lastUpdateMs = nowMs;
     decodedSpeed_.decoderName = config.name;
     decodedSpeedTimeoutMs_ = config.timeoutMs;

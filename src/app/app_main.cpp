@@ -14,6 +14,7 @@
 #include "pins_config.h"
 
 #include "app_types.h"
+#include "app_config.h"
 #include "../can/can_manager.h"
 #include "../distance/distance_manager.h"
 #include "../fusion/fusion_manager.h"
@@ -24,7 +25,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-27_12_CAN_BACKEND_SPLIT";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-27_17_MCP2518FD_PIN_PLAN";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -214,11 +215,34 @@ void appSetup() {
   if (canManager.begin(
           static_cast<gpio_num_t>(CAN_TX_PIN),
           static_cast<gpio_num_t>(CAN_RX_PIN),
-          CAN_BACKEND_CLASSIC)) {
+          AppConfig::kRequestedCanBackend,
+          AppConfig::kActiveCanProfile)) {
+    const CanBackendCapabilities caps = canManager.getBackendCapabilities();
+    const CanBackendRequirements reqs = canManager.getBackendRequirements();
     Serial.println("CAN(TWAI) initialized");
+    Serial.printf(
+        "CAN backend requested: %s\n",
+        (AppConfig::kRequestedCanBackend == CAN_BACKEND_CLASSIC) ? "CLASSIC_CAN" : "CAN_FD");
     Serial.printf("CAN backend in use: %s\n", canManager.getBackendName());
+    Serial.printf("CAN profile in use: %s\n", canManager.getProfileName());
+    Serial.printf("CAN profile note: %s\n", canManager.getProfileBringupNote());
+    Serial.printf(
+        "CAN backend caps: classic=%s fd=%s ready=%s\n",
+        caps.supportsClassicCan ? "YES" : "NO",
+        caps.supportsCanFd ? "YES" : "NO",
+        caps.backendReady ? "YES" : "NO");
+    Serial.printf(
+        "CAN backend reqs: ext_ctrl=%s ext_xcvr=%s max_payload=%u driver=%s\n",
+        reqs.requiresExternalController ? "YES" : "NO",
+        reqs.requiresExternalTransceiver ? "YES" : "NO",
+        static_cast<unsigned>(reqs.maxPayloadBytes),
+        reqs.driverFamily);
+    Serial.printf("CAN backend hw: %s\n", reqs.expectedHardware);
+    Serial.printf("CAN next step : %s\n", reqs.nextBringupStep);
+    Serial.printf("CAN backend note: %s\n", canManager.getBackendDiagnosticText());
   } else {
     Serial.println("CAN(TWAI) initialization failed");
+    Serial.printf("CAN backend note: %s\n", canManager.getBackendDiagnosticText());
   }
 
   uiManager.begin();
