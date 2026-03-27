@@ -25,7 +25,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-27_18_AUTO_STAGE1";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-27_19_AUTO_CORR_STAGE2";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -113,6 +113,13 @@ void printGpsSummary() {
       fusionState.gnssStable ? "YES" : "NO",
       fusionState.canStable ? "YES" : "NO",
       fusionState.extStable ? "YES" : "NO");
+  Serial.printf(
+      "Corr       : active=%s learned=%s factor=%.4f samples=%u correctedCAN=%.2f km/h\n",
+      fusionState.corrActive ? "YES" : "NO",
+      fusionState.corrLearned ? "YES" : "NO",
+      fusionState.corrFactor,
+      static_cast<unsigned>(fusionState.corrSampleCount),
+      fusionState.correctedCanSpeedKmh);
   Serial.printf("CAN Decode : %s\n", canSpeedState.valid ? "YES" : "NO");
   if (canSpeedState.valid) {
     Serial.printf(

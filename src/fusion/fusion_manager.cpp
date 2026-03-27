@@ -7,6 +7,11 @@ constexpr uint32_t kCanStableHoldMs = 200;
 constexpr uint32_t kExtStableHoldMs = 200;
 constexpr int kGnssStableMinSats = 4;
 constexpr int kGnssStableMinMode = 1;
+constexpr float kCorrLearningMinSpeedKmh = 30.0f;
+constexpr float kCorrLearningMinRatio = 0.70f;
+constexpr float kCorrLearningMaxRatio = 1.30f;
+constexpr uint32_t kCorrSampleIntervalMs = 200;
+constexpr float kCorrAlpha = 0.08f;
 
 bool isGnssStableCandidate(const FusionInputs &inputs) {
   return inputs.gnssValid &&
@@ -33,6 +38,44 @@ bool FusionManager::updateStableFlag(
   return (nowMs - sinceMs) >= holdMs;
 }
 
+void FusionManager::updateCorrelationLearning(
+    const FusionInputs &inputs,
+    bool gnssStable,
+    bool canStable) {
+  if (!gnssStable || !canStable) {
+    return;
+  }
+
+  if (inputs.gnssSpeedKmh < kCorrLearningMinSpeedKmh ||
+      inputs.canSpeedKmh < kCorrLearningMinSpeedKmh) {
+    return;
+  }
+
+  if (inputs.canSpeedKmh <= 0.0f) {
+    return;
+  }
+
+  if (lastCorrSampleMs_ != 0U &&
+      (inputs.nowMs - lastCorrSampleMs_) < kCorrSampleIntervalMs) {
+    return;
+  }
+
+  const float sampleFactor = inputs.gnssSpeedKmh / inputs.canSpeedKmh;
+  if (sampleFactor < kCorrLearningMinRatio ||
+      sampleFactor > kCorrLearningMaxRatio) {
+    return;
+  }
+
+  if (corrSampleCount_ == 0U) {
+    corrFactor_ = sampleFactor;
+  } else {
+    corrFactor_ = (1.0f - kCorrAlpha) * corrFactor_ + (kCorrAlpha * sampleFactor);
+  }
+
+  lastCorrSampleMs_ = inputs.nowMs;
+  ++corrSampleCount_;
+}
+
 void FusionManager::update(const FusionInputs &inputs) {
   const bool gnssStable = updateStableFlag(
       isGnssStableCandidate(inputs),
@@ -50,6 +93,12 @@ void FusionManager::update(const FusionInputs &inputs) {
       kExtStableHoldMs,
       extCandidateSinceMs_);
 
+  updateCorrelationLearning(inputs, gnssStable, canStable);
+  const bool corrLearned = corrSampleCount_ > 0U;
+  const float correctedCanSpeedKmh = corrLearned
+                                         ? (inputs.canSpeedKmh * corrFactor_)
+                                         : inputs.canSpeedKmh;
+
   state_.mode = mode_;
   state_.autoState = autoState_;
   state_.corrActive = false;
@@ -58,6 +107,10 @@ void FusionManager::update(const FusionInputs &inputs) {
   state_.gnssStable = gnssStable;
   state_.canStable = canStable;
   state_.extStable = extStable;
+  state_.corrLearned = corrLearned;
+  state_.corrFactor = corrFactor_;
+  state_.correctedCanSpeedKmh = correctedCanSpeedKmh;
+  state_.corrSampleCount = corrSampleCount_;
 
   switch (mode_) {
     case SPEED_MODE_AUTO:
@@ -119,7 +172,8 @@ void FusionManager::update(const FusionInputs &inputs) {
         case AUTO_STATE_CAN_FALLBACK:
           if (inputs.canValid) {
             state_.selectedSource = SPEED_SOURCE_CAN;
-            state_.selectedSpeedKmh = inputs.canSpeedKmh;
+            state_.selectedSpeedKmh = correctedCanSpeedKmh;
+            state_.corrActive = corrLearned;
           }
           break;
 

@@ -63,6 +63,10 @@ struct FusionState {
   bool canStable = false;
   bool extStable = false;
   bool corrActive = false;
+  bool corrLearned = false;
+  float corrFactor = 1.0f;
+  float correctedCanSpeedKmh = 0.0f;
+  uint16_t corrSampleCount = 0;
 };
 
 enum UiAction : uint8_t {
