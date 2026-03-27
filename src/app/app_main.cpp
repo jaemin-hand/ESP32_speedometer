@@ -24,7 +24,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-26_11_AUTO_GNSS_TIMEOUT";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-27_12_CAN_BACKEND_SPLIT";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -211,8 +211,12 @@ void appSetup() {
   gnss.begin(gpsSerial, GPS_RX_PIN, GPS_TX_PIN);
   Serial.println("GNSS serial ready for SBF");
 
-  if (canManager.begin(static_cast<gpio_num_t>(CAN_TX_PIN), static_cast<gpio_num_t>(CAN_RX_PIN))) {
+  if (canManager.begin(
+          static_cast<gpio_num_t>(CAN_TX_PIN),
+          static_cast<gpio_num_t>(CAN_RX_PIN),
+          CAN_BACKEND_CLASSIC)) {
     Serial.println("CAN(TWAI) initialized");
+    Serial.printf("CAN backend in use: %s\n", canManager.getBackendName());
   } else {
     Serial.println("CAN(TWAI) initialization failed");
   }

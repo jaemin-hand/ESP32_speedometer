@@ -1,7 +1,8 @@
-﻿#pragma once
+#pragma once
 
 #include <Arduino.h>
-#include "driver/twai.h"
+
+#include "can_backend.h"
 
 enum CanSignalEndian : uint8_t {
   CAN_SIGNAL_LITTLE_ENDIAN = 0,
@@ -35,16 +36,17 @@ public:
   static constexpr size_t kMonitorLineLength = 48;
   static constexpr size_t kMonitorTextSize = (kMonitorLineCount * kMonitorLineLength) + 32;
 
-  // Legacy-baseline CAN bring-up:
-  // - NORMAL mode
-  // - default 500 kbps timing
-  // - raw receive monitor always active
-  //
-  // Additional features such as decoded speed are layered on top and must not
-  // break the basic send/receive path.
-  bool begin(gpio_num_t txPin, gpio_num_t rxPin);
+  // Keep the currently working classic CAN path as the baseline.
+  // CAN-FD support will be added behind a separate backend without changing the
+  // rest of the app-facing API.
+  bool begin(
+      gpio_num_t txPin,
+      gpio_num_t rxPin,
+      CanBackendType backendType = CAN_BACKEND_CLASSIC);
   void poll(uint32_t nowMs);
   bool isInitialized() const;
+  CanBackendType getBackendType() const;
+  const char *getBackendName() const;
 
   bool sendTestFrame();
   bool isLinkAlive(uint32_t nowMs, uint32_t aliveWindowMs) const;
@@ -77,7 +79,6 @@ private:
   uint8_t nextMonitorLineIndex_ = 0;
   bool monitorWrapped_ = false;
   bool initialized_ = false;
+  CanBackendType backendType_ = CAN_BACKEND_CLASSIC;
+  ICanBackend *backend_ = nullptr;
 };
-
-
-

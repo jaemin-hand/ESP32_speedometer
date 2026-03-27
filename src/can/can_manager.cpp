@@ -1,14 +1,20 @@
-﻿#include "can_manager.h"
+#include "can_manager.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "can_fd_backend.h"
+#include "classic_can_backend.h"
+
 namespace {
+
+ClassicCanBackend gClassicCanBackend;
+CanFdBackend gCanFdBackend;
 
 // Keep the current CAN path intentionally close to the last known-good
 // legacy sketch:
-//   - TWAI_MODE_NORMAL
+//   - NORMAL mode
 //   - default 500 kbps timing
 //   - direct non-blocking receive loop
 //
@@ -51,18 +57,36 @@ bool isReasonableSpeed(float speedKmh) {
 constexpr uint8_t kMaxFramesPerPoll = 8;
 constexpr uint32_t kRawCanPrintIntervalMs = 100;
 
+ICanBackend *selectBackend(CanBackendType backendType) {
+  switch (backendType) {
+    case CAN_BACKEND_CLASSIC:
+      return &gClassicCanBackend;
+    case CAN_BACKEND_FD:
+      return &gCanFdBackend;
+    default:
+      return nullptr;
+  }
+}
+
 }  // namespace
 
-bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
-  initialized_ = false;
+bool CanManager::begin(
+    gpio_num_t txPin,
+    gpio_num_t rxPin,
+    CanBackendType backendType) {
+  if (backend_ != nullptr) {
+    backend_->end();
+  }
 
-  twai_general_config_t gConfig =
-      TWAI_GENERAL_CONFIG_DEFAULT(txPin, rxPin, TWAI_MODE_NORMAL);
-  twai_timing_config_t tConfig = TWAI_TIMING_CONFIG_500KBITS();
-  twai_filter_config_t fConfig = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+  initialized_ = false;
+  backendType_ = backendType;
+  backend_ = selectBackend(backendType_);
+  if (backend_ == nullptr) {
+    return false;
+  }
 
   // Reset runtime state on every re-init so the monitor and decode state do
-  // not carry stale values across driver restarts.
+  // not carry stale values across backend restarts.
   lastRxMs_ = 0;
   lastRawPrintMs_ = 0;
   decodedSpeedTimeoutMs_ = 0;
@@ -72,16 +96,12 @@ bool CanManager::begin(gpio_num_t txPin, gpio_num_t rxPin) {
   memset(monitorLines_, 0, sizeof(monitorLines_));
   snprintf(monitorText_, sizeof(monitorText_), "Waiting for CAN data...");
 
-  Serial.println("TWAI mode: NORMAL (legacy baseline)");
-  Serial.println("TWAI timing: default 500 kbps (legacy baseline)");
-  Serial.println("TWAI filter: ACCEPT_ALL (monitor all incoming IDs)");
-
-  if (twai_driver_install(&gConfig, &tConfig, &fConfig) != ESP_OK) {
-    return false;
-  }
-
-  if (twai_start() != ESP_OK) {
-    twai_driver_uninstall();
+  const CanBackendOptions options = {
+      .txPin = txPin,
+      .rxPin = rxPin,
+  };
+  if (!backend_->begin(options)) {
+    backend_ = nullptr;
     return false;
   }
 
@@ -93,8 +113,16 @@ bool CanManager::isInitialized() const {
   return initialized_;
 }
 
+CanBackendType CanManager::getBackendType() const {
+  return backendType_;
+}
+
+const char *CanManager::getBackendName() const {
+  return (backend_ != nullptr) ? backend_->backendName() : "NONE";
+}
+
 void CanManager::poll(uint32_t nowMs) {
-  if (!initialized_) {
+  if (!initialized_ || (backend_ == nullptr)) {
     return;
   }
 
@@ -104,7 +132,7 @@ void CanManager::poll(uint32_t nowMs) {
   twai_message_t rxMessage;
   uint8_t framesProcessed = 0;
   while ((framesProcessed < kMaxFramesPerPoll) &&
-         (twai_receive(&rxMessage, pdMS_TO_TICKS(0)) == ESP_OK)) {
+         backend_->receive(&rxMessage)) {
     char monitorLine[kMonitorLineLength] = {0};
     lastRxMs_ = nowMs;
     formatMonitorLine(rxMessage, monitorLine, sizeof(monitorLine));
@@ -129,7 +157,7 @@ void CanManager::poll(uint32_t nowMs) {
 }
 
 bool CanManager::sendTestFrame() {
-  if (!initialized_) {
+  if (!initialized_ || (backend_ == nullptr)) {
     return false;
   }
 
@@ -144,7 +172,7 @@ bool CanManager::sendTestFrame() {
   txMessage.data[2] = 0x03;
   txMessage.data[3] = 0x04;
 
-  return twai_transmit(&txMessage, pdMS_TO_TICKS(100)) == ESP_OK;
+  return backend_->transmit(txMessage, pdMS_TO_TICKS(100));
 }
 
 bool CanManager::isLinkAlive(uint32_t nowMs, uint32_t aliveWindowMs) const {
@@ -173,13 +201,13 @@ void CanManager::printStatus(const char *prefix) const {
   }
 
   if (!initialized_) {
-    Serial.println("TWAI not initialized");
+    Serial.println("CAN backend not initialized");
     return;
   }
 
   twai_status_info_t status = {};
-  if (twai_get_status_info(&status) != ESP_OK) {
-    Serial.println("TWAI status read failed");
+  if ((backend_ == nullptr) || !backend_->getStatus(&status)) {
+    Serial.println("CAN backend status read failed");
     return;
   }
 
@@ -339,6 +367,3 @@ bool CanManager::tryDecodeSpeed(const twai_message_t &rxMessage, uint32_t nowMs)
 
   return false;
 }
-
-
-
