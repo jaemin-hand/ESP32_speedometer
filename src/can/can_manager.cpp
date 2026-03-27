@@ -157,7 +157,7 @@ void CanManager::poll(uint32_t nowMs) {
 
     if ((lastRawPrintMs_ == 0U) ||
         ((nowMs - lastRawPrintMs_) >= kRawCanPrintIntervalMs)) {
-      Serial.printf("CAN RX: %s\n", monitorLine);
+      // Serial.printf("CAN RX: %s\n", monitorLine);
       lastRawPrintMs_ = nowMs;
     }
 

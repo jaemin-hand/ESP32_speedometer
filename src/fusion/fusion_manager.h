@@ -11,8 +11,15 @@ public:
 
   static const char *modeToText(SpeedSourceMode mode);
   static const char *sourceToText(SpeedSource source);
+  static const char *autoStateToText(AutoState autoState);
 
 private:
+  static bool updateStableFlag(bool condition, uint32_t nowMs, uint32_t holdMs, uint32_t &sinceMs);
+
   SpeedSourceMode mode_ = SPEED_MODE_AUTO;
+  AutoState autoState_ = AUTO_STATE_SEARCH;
   FusionState state_;
+  uint32_t gnssCandidateSinceMs_ = 0;
+  uint32_t canCandidateSinceMs_ = 0;
+  uint32_t extCandidateSinceMs_ = 0;
 };

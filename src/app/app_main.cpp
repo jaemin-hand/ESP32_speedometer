@@ -25,7 +25,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-27_17_MCP2518FD_PIN_PLAN";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-27_18_AUTO_STAGE1";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -106,7 +106,13 @@ void printGpsSummary() {
       gps.pvtMode,
       GnssManager::pvtStatusToText(gps.pvtMode, gps.errorCode));
   Serial.printf("SourceMode : %s\n", FusionManager::modeToText(fusionState.mode));
+  Serial.printf("AutoState  : %s\n", FusionManager::autoStateToText(fusionState.autoState));
   Serial.printf("Selected   : %s\n", FusionManager::sourceToText(fusionState.selectedSource));
+  Serial.printf(
+      "Stable     : GNSS=%s CAN=%s EXT=%s\n",
+      fusionState.gnssStable ? "YES" : "NO",
+      fusionState.canStable ? "YES" : "NO",
+      fusionState.extStable ? "YES" : "NO");
   Serial.printf("CAN Decode : %s\n", canSpeedState.valid ? "YES" : "NO");
   if (canSpeedState.valid) {
     Serial.printf(
@@ -272,7 +278,10 @@ void appLoop() {
   const GpsData &gps = gnss.getData();
 
   FusionInputs fusionInputs;
+  fusionInputs.nowMs = nowMs;
   fusionInputs.gnssValid = gps.pvtValid;
+  fusionInputs.gnssMode = gps.pvtMode;
+  fusionInputs.gnssSatellites = gps.satellites;
   fusionInputs.gnssSpeedKmh = gps.speedKmh;
   fusionInputs.canValid = canManager.hasDecodedSpeed();
   fusionInputs.canSpeedKmh = canManager.getDecodedSpeedKmh();

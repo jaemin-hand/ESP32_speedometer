@@ -35,8 +35,18 @@ enum SpeedSource : uint8_t {
   SPEED_SOURCE_EXT = 3,
 };
 
+enum AutoState : uint8_t {
+  AUTO_STATE_SEARCH = 0,
+  AUTO_STATE_GNSS_ACTIVE = 1,
+  AUTO_STATE_CAN_FALLBACK = 2,
+  AUTO_STATE_EXT_FALLBACK = 3,
+};
+
 struct FusionInputs {
+  uint32_t nowMs = 0;
   bool gnssValid = false;
+  int gnssMode = 0;
+  int gnssSatellites = 0;
   float gnssSpeedKmh = 0.0f;
   bool canValid = false;
   float canSpeedKmh = 0.0f;
@@ -46,8 +56,12 @@ struct FusionInputs {
 
 struct FusionState {
   SpeedSourceMode mode = SPEED_MODE_AUTO;
+  AutoState autoState = AUTO_STATE_SEARCH;
   SpeedSource selectedSource = SPEED_SOURCE_NONE;
   float selectedSpeedKmh = 0.0f;
+  bool gnssStable = false;
+  bool canStable = false;
+  bool extStable = false;
   bool corrActive = false;
 };
 
