@@ -10,12 +10,19 @@ enum CanSignalEndian : uint8_t {
   CAN_SIGNAL_BIG_ENDIAN = 1,
 };
 
+enum CanSpeedDecoderType : uint8_t {
+  CAN_SPEED_DECODER_UNSIGNED = 0,
+  CAN_SPEED_DECODER_SANTAFE_WHEEL_AVG_0X386 = 1,
+};
+
 struct CanSpeedDecoderConfig {
   bool enabled = false;
   const char *name = "";
   uint32_t identifier = 0;
   bool extended = false;
   bool fdFormat = false;
+  CanSpeedDecoderType decoderType = CAN_SPEED_DECODER_UNSIGNED;
+  uint8_t priority = 0;
   uint8_t startByte = 0;
   uint8_t lengthBytes = 2;
   CanSignalEndian endian = CAN_SIGNAL_LITTLE_ENDIAN;
