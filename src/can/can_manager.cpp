@@ -30,6 +30,13 @@ bool isReasonableSpeed(float speedKmh) {
   return isfinite(speedKmh) && speedKmh >= 0.0f && speedKmh <= 400.0f;
 }
 
+float decodeSantaFeWheelSample(uint8_t lowByte, uint8_t highByte) {
+  const uint16_t rawValue =
+      static_cast<uint16_t>(lowByte) |
+      (static_cast<uint16_t>(highByte & 0x3F) << 8U);
+  return static_cast<float>(rawValue) / 16.0f;
+}
+
 // Keep CAN RX processing cooperative with the rest of the app.
 // If we drain the bus indefinitely while replay traffic is active,
 // GNSS/time/UI updates appear to "freeze" because appLoop cannot return.
@@ -266,6 +273,47 @@ uint32_t CanManager::readUnsignedValue(
   return value;
 }
 
+bool CanManager::decodeSpeedValue(
+    const CanFrame &rxFrame,
+    const CanSpeedDecoderConfig &config,
+    float *speedKmhOut) {
+  if (speedKmhOut == nullptr) {
+    return false;
+  }
+
+  switch (config.decoderType) {
+    case CAN_SPEED_DECODER_UNSIGNED: {
+      if ((config.startByte + config.lengthBytes) > rxFrame.dataLength) {
+        return false;
+      }
+
+      const uint32_t rawValue = readUnsignedValue(
+          rxFrame.data,
+          config.startByte,
+          config.lengthBytes,
+          config.endian);
+      *speedKmhOut = (static_cast<float>(rawValue) * config.scale) + config.offset;
+      return true;
+    }
+
+    case CAN_SPEED_DECODER_SANTAFE_WHEEL_AVG_0X386: {
+      if (rxFrame.dataLength < 8U) {
+        return false;
+      }
+
+      const float fl = decodeSantaFeWheelSample(rxFrame.data[0], rxFrame.data[1]);
+      const float fr = decodeSantaFeWheelSample(rxFrame.data[2], rxFrame.data[3]);
+      const float rl = decodeSantaFeWheelSample(rxFrame.data[4], rxFrame.data[5]);
+      const float rr = decodeSantaFeWheelSample(rxFrame.data[6], rxFrame.data[7]);
+      *speedKmhOut = (fl + fr + rl + rr) * 0.25f;
+      return true;
+    }
+
+    default:
+      return false;
+  }
+}
+
 void CanManager::appendMonitorLine(const CanFrame &rxFrame) {
   char monitorLine[kMonitorLineLength] = {0};
   formatMonitorLine(rxFrame, monitorLine, sizeof(monitorLine));
@@ -372,17 +420,19 @@ bool CanManager::tryDecodeSpeed(const CanFrame &rxFrame, uint32_t nowMs) {
     if (config.lengthBytes == 0U) {
       continue;
     }
-    if ((config.startByte + config.lengthBytes) > rxFrame.dataLength) {
+    float speedKmh = 0.0f;
+    if (!decodeSpeedValue(rxFrame, config, &speedKmh)) {
+      continue;
+    }
+    if (!isReasonableSpeed(speedKmh)) {
       continue;
     }
 
-    const uint32_t rawValue = readUnsignedValue(
-        rxFrame.data,
-        config.startByte,
-        config.lengthBytes,
-        config.endian);
-    const float speedKmh = (static_cast<float>(rawValue) * config.scale) + config.offset;
-    if (!isReasonableSpeed(speedKmh)) {
+    const bool decodedStillFresh =
+        decodedSpeed_.valid &&
+        ((decodedSpeedTimeoutMs_ == 0U) ||
+         ((nowMs - decodedSpeed_.lastUpdateMs) <= decodedSpeedTimeoutMs_));
+    if (decodedStillFresh && (config.priority < decodedSpeed_.decoderPriority)) {
       continue;
     }
 
@@ -391,6 +441,7 @@ bool CanManager::tryDecodeSpeed(const CanFrame &rxFrame, uint32_t nowMs) {
     decodedSpeed_.identifier = rxFrame.identifier;
     decodedSpeed_.lastUpdateMs = nowMs;
     decodedSpeed_.decoderName = config.name;
+    decodedSpeed_.decoderPriority = config.priority;
     decodedSpeedTimeoutMs_ = config.timeoutMs;
     return true;
   }

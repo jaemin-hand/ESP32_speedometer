@@ -120,7 +120,7 @@ void printGpsSummary() {
   Serial.println("========== GPS SUMMARY ==========");
   Serial.printf(
       "GNSS Test   : %s%s\n",
-      gnssTestOverrideEnabled ? "ON" : "OFF",
+      gnssTestOverrideEnabled ? "OFF" : "ON",
       gnssTestOverrideEnabled ? " (override speed active)" : "");
   Serial.printf("Valid      : %s\n", gps.pvtValid ? "YES" : "NO");
   Serial.printf(
@@ -362,3 +362,4 @@ void appLoop() {
 
 #pragma GCC pop_options
 
+// CNO 값 참고해보기

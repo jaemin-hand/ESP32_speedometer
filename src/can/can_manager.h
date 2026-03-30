@@ -11,6 +11,7 @@ struct CanDecodedSpeedState {
   uint32_t identifier = 0;
   uint32_t lastUpdateMs = 0;
   const char *decoderName = "";
+  uint8_t decoderPriority = 0;
 };
 
 class CanManager {
@@ -52,6 +53,10 @@ private:
       uint8_t startByte,
       uint8_t lengthBytes,
       CanSignalEndian endian);
+  static bool decodeSpeedValue(
+      const CanFrame &rxFrame,
+      const CanSpeedDecoderConfig &config,
+      float *speedKmhOut);
   static void formatMonitorLine(
       const CanFrame &rxFrame,
       char *lineBuf,
