@@ -25,7 +25,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-27_19_AUTO_CORR_STAGE2";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-30_21_GNSS_TEST_TOGGLE";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -37,6 +37,9 @@ constexpr uint32_t DEBUG_PRINT_INTERVAL_MS = 1000;
 constexpr uint32_t CAN_STATUS_INTERVAL_MS = 1000;
 constexpr bool ENABLE_CAN_HEARTBEAT = false;
 constexpr uint32_t CAN_HEARTBEAT_INTERVAL_MS = 1000;
+constexpr float GNSS_TEST_SPEED_KMH = 40.0f;
+constexpr int GNSS_TEST_MODE = 1;
+constexpr int GNSS_TEST_SATS = 10;
 
 HardwareSerial gpsSerial(1);
 
@@ -53,6 +56,21 @@ CanManager canManager;
 DistanceManager distanceManager;
 FusionManager fusionManager;
 UiManager uiManager;
+bool gnssTestOverrideEnabled = true;
+
+GpsData buildEffectiveGpsData(const GpsData &rawGps) {
+  GpsData effectiveGps = rawGps;
+
+  if (gnssTestOverrideEnabled) {
+    effectiveGps.pvtValid = true;
+    effectiveGps.pvtMode = GNSS_TEST_MODE;
+    effectiveGps.satellites = GNSS_TEST_SATS;
+    effectiveGps.speedKmh = GNSS_TEST_SPEED_KMH;
+    effectiveGps.speedKnots = GNSS_TEST_SPEED_KMH / 1.852f;
+  }
+
+  return effectiveGps;
+}
 
 bool onLcdColorTransDone(esp_lcd_panel_handle_t panel,
                          esp_lcd_dpi_panel_event_data_t *edata,
@@ -95,11 +113,15 @@ void myTouchpadRead(lv_indev_drv_t *indevDriver, lv_indev_data_t *data) {
 }
 
 void printGpsSummary() {
-  const GpsData &gps = gnss.getData();
+  const GpsData gps = buildEffectiveGpsData(gnss.getData());
   const FusionState &fusionState = fusionManager.getState();
   const CanDecodedSpeedState &canSpeedState = canManager.getDecodedSpeedState();
 
   Serial.println("========== GPS SUMMARY ==========");
+  Serial.printf(
+      "GNSS Test   : %s%s\n",
+      gnssTestOverrideEnabled ? "ON" : "OFF",
+      gnssTestOverrideEnabled ? " (override speed active)" : "");
   Serial.printf("Valid      : %s\n", gps.pvtValid ? "YES" : "NO");
   Serial.printf(
       "Mode       : %d (%s)\n",
@@ -224,6 +246,13 @@ void appSetup() {
 
   gnss.begin(gpsSerial, GPS_RX_PIN, GPS_TX_PIN);
   Serial.println("GNSS serial ready for SBF");
+  if (gnssTestOverrideEnabled) {
+    Serial.printf(
+        "GNSS test override active: %.1f km/h, mode=%d, sats=%d\n",
+        GNSS_TEST_SPEED_KMH,
+        GNSS_TEST_MODE,
+        GNSS_TEST_SATS);
+  }
 
   if (canManager.begin(
           static_cast<gpio_num_t>(CAN_TX_PIN),
@@ -269,6 +298,19 @@ void appLoop() {
 
   const uint32_t nowMs = millis();
 
+  while (Serial.available() > 0) {
+    const int ch = Serial.read();
+    if (ch == 'g' || ch == 'G') {
+      gnssTestOverrideEnabled = !gnssTestOverrideEnabled;
+      Serial.printf(
+          "GNSS test override -> %s (%.1f km/h, mode=%d, sats=%d)\n",
+          gnssTestOverrideEnabled ? "ON" : "OFF",
+          GNSS_TEST_SPEED_KMH,
+          GNSS_TEST_MODE,
+          GNSS_TEST_SATS);
+    }
+  }
+
   canManager.poll(nowMs);
 
   if (ENABLE_CAN_HEARTBEAT && (nowMs - lastCanHeartbeatMs) >= CAN_HEARTBEAT_INTERVAL_MS) {
@@ -282,7 +324,7 @@ void appLoop() {
   }
 
   gnss.update();
-  const GpsData &gps = gnss.getData();
+  const GpsData gps = buildEffectiveGpsData(gnss.getData());
 
   FusionInputs fusionInputs;
   fusionInputs.nowMs = nowMs;
