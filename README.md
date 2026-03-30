@@ -1,3 +1,5 @@
+![20260330_154026(1)](https://github.com/user-attachments/assets/c4e95141-0d43-448b-8baf-bc9a3cd74879)
+
 # esp32p4_arduino_mipi-dsi_lvgl
 
 ESP32-P4 Arduino/LVGL dashboard prototype for a 1024x600 MIPI-DSI display with GT911 touch, GNSS input, and CAN speed input.
