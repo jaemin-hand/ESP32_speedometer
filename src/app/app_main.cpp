@@ -362,5 +362,4 @@ void appLoop() {
 
 #pragma GCC pop_options
 
-// CNO 값
-// 
+// CNO 값 참고해보기
