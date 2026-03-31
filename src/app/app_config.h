@@ -24,4 +24,13 @@ constexpr gpio_num_t kCanFdIrqPin = GPIO_NUM_NC;
 constexpr gpio_num_t kCanFdResetPin = GPIO_NUM_NC;
 constexpr gpio_num_t kCanFdStandbyPin = GPIO_NUM_NC;
 
+// Pulse input 1st-stage bring-up.
+// This is treated as the EXT speed source and can be reassigned later if the
+// final hardware uses a different input pin.
+constexpr gpio_num_t kPulseInputPin = GPIO_NUM_46;
+constexpr bool kPulseInputUsePullup = true;
+constexpr float kPulseInputMetersPerPulse = 0.5f;
+constexpr uint32_t kPulseInputSampleWindowMs = 200;
+constexpr uint32_t kPulseInputTimeoutMs = 500;
+
 }  // namespace AppConfig

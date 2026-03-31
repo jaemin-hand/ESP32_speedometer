@@ -17,6 +17,7 @@
 #include "app_config.h"
 #include "../can/can_manager.h"
 #include "../distance/distance_manager.h"
+#include "../ext/pulse_input_manager.h"
 #include "../fusion/fusion_manager.h"
 #include "../gnss/gnss_manager.h"
 #include "../lcd/jd9165_lcd.h"
@@ -25,7 +26,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-30_21_GNSS_TEST_TOGGLE";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-31_22_PULSE_INPUT_STAGE1";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -54,9 +55,10 @@ lv_disp_drv_t dispDrv;
 GnssManager gnss;
 CanManager canManager;
 DistanceManager distanceManager;
+PulseInputManager pulseInputManager;
 FusionManager fusionManager;
 UiManager uiManager;
-bool gnssTestOverrideEnabled = true;
+bool gnssTestOverrideEnabled = false;
 
 GpsData buildEffectiveGpsData(const GpsData &rawGps) {
   GpsData effectiveGps = rawGps;
@@ -116,6 +118,7 @@ void printGpsSummary() {
   const GpsData gps = buildEffectiveGpsData(gnss.getData());
   const FusionState &fusionState = fusionManager.getState();
   const CanDecodedSpeedState &canSpeedState = canManager.getDecodedSpeedState();
+  const PulseInputState &pulseState = pulseInputManager.getState();
 
   Serial.println("========== GPS SUMMARY ==========");
   Serial.printf(
@@ -150,6 +153,13 @@ void printGpsSummary() {
         canSpeedState.decoderName,
         canSpeedState.identifier);
   }
+  Serial.printf(
+      "EXT Pulse  : configured=%s valid=%s stale=%s count=%lu speed=%.2f km/h\n",
+      pulseState.configured ? "YES" : "NO",
+      pulseState.valid ? "YES" : "NO",
+      pulseState.stale ? "YES" : "NO",
+      static_cast<unsigned long>(pulseState.totalPulseCount),
+      pulseState.speedKmh);
   Serial.printf("Sats       : %d\n", gps.satellites);
   Serial.printf("Speed      : %.2f km/h\n", distanceManager.getSelectedSpeedKmh());
   Serial.print("Lat        : ");
@@ -165,10 +175,11 @@ void printGpsSummary() {
 
 UiSnapshot buildUiSnapshot(const GpsData &gps) {
   const FusionState &fusionState = fusionManager.getState();
+  const PulseInputState &pulseState = pulseInputManager.getState();
 
   UiSnapshot snapshot;
-  snapshot.extValid = false;
-  snapshot.extSpeedKmh = 0.0f;
+  snapshot.extValid = pulseState.valid;
+  snapshot.extSpeedKmh = pulseState.speedKmh;
   snapshot.gpsValid = gps.pvtValid;
   snapshot.gpsSpeedKmh = gps.speedKmh;
   snapshot.canValid = canManager.hasDecodedSpeed();
@@ -254,6 +265,22 @@ void appSetup() {
         GNSS_TEST_SATS);
   }
 
+  if (pulseInputManager.begin(
+          AppConfig::kPulseInputPin,
+          AppConfig::kPulseInputUsePullup,
+          AppConfig::kPulseInputMetersPerPulse,
+          AppConfig::kPulseInputSampleWindowMs,
+          AppConfig::kPulseInputTimeoutMs)) {
+    Serial.printf(
+        "Pulse input ready: pin=%d meters/pulse=%.4f window=%lu ms timeout=%lu ms\n",
+        static_cast<int>(AppConfig::kPulseInputPin),
+        AppConfig::kPulseInputMetersPerPulse,
+        static_cast<unsigned long>(AppConfig::kPulseInputSampleWindowMs),
+        static_cast<unsigned long>(AppConfig::kPulseInputTimeoutMs));
+  } else {
+    Serial.println("Pulse input disabled or not configured");
+  }
+
   if (canManager.begin(
           static_cast<gpio_num_t>(CAN_TX_PIN),
           static_cast<gpio_num_t>(CAN_RX_PIN),
@@ -312,6 +339,7 @@ void appLoop() {
   }
 
   canManager.poll(nowMs);
+  pulseInputManager.update(nowMs);
 
   if (ENABLE_CAN_HEARTBEAT && (nowMs - lastCanHeartbeatMs) >= CAN_HEARTBEAT_INTERVAL_MS) {
     lastCanHeartbeatMs = nowMs;
@@ -334,8 +362,8 @@ void appLoop() {
   fusionInputs.gnssSpeedKmh = gps.speedKmh;
   fusionInputs.canValid = canManager.hasDecodedSpeed();
   fusionInputs.canSpeedKmh = canManager.getDecodedSpeedKmh();
-  fusionInputs.extValid = false;
-  fusionInputs.extSpeedKmh = 0.0f;
+  fusionInputs.extValid = pulseInputManager.isValid();
+  fusionInputs.extSpeedKmh = pulseInputManager.getSpeedKmh();
 
   fusionManager.update(fusionInputs);
   distanceManager.update(nowMs, fusionManager.getState().selectedSpeedKmh);
