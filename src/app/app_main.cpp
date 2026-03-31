@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-31_22_PULSE_INPUT_STAGE1";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-31_26_GNSS_STATUS_LOCAL_TIME";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -67,11 +67,105 @@ GpsData buildEffectiveGpsData(const GpsData &rawGps) {
     effectiveGps.pvtValid = true;
     effectiveGps.pvtMode = GNSS_TEST_MODE;
     effectiveGps.satellites = GNSS_TEST_SATS;
+    effectiveGps.sbfStreamActive = true;
+    effectiveGps.receiverTimeValid = true;
+    effectiveGps.sbfAgeMs = 0;
+    effectiveGps.pvtAgeMs = 0;
+    effectiveGps.receiverTimeAgeMs = 0;
     effectiveGps.speedKmh = GNSS_TEST_SPEED_KMH;
     effectiveGps.speedKnots = GNSS_TEST_SPEED_KMH / 1.852f;
   }
 
   return effectiveGps;
+}
+
+uint32_t applyLocalUtcOffset(uint32_t secondsOfDay) {
+  int32_t shiftedSeconds =
+      static_cast<int32_t>(secondsOfDay) + (AppConfig::kLocalUtcOffsetMinutes * 60);
+
+  shiftedSeconds %= 86400;
+  if (shiftedSeconds < 0) {
+    shiftedSeconds += 86400;
+  }
+
+  return static_cast<uint32_t>(shiftedSeconds);
+}
+
+bool tryFormatLocalTimeFromUtc(const char *utcText, char *outBuf, size_t outBufSize) {
+  if ((utcText == nullptr) || (strlen(utcText) < 8U)) {
+    return false;
+  }
+
+  unsigned hour = 0;
+  unsigned minute = 0;
+  unsigned second = 0;
+  if (sscanf(utcText, "%2u:%2u:%2u", &hour, &minute, &second) != 3) {
+    return false;
+  }
+
+  const uint32_t localSeconds =
+      applyLocalUtcOffset((hour * 3600U) + (minute * 60U) + second);
+  snprintf(
+      outBuf,
+      outBufSize,
+      "%02lu:%02lu:%02lu",
+      static_cast<unsigned long>(localSeconds / 3600U),
+      static_cast<unsigned long>((localSeconds / 60U) % 60U),
+      static_cast<unsigned long>(localSeconds % 60U));
+  return true;
+}
+
+GnssSpeedQuality classifyGnssSpeedQuality(const GpsData &gps) {
+  if (!gps.pvtValid) {
+    return GNSS_SPEED_QUALITY_LOST;
+  }
+
+  switch (gps.pvtMode) {
+    case 4:
+    case 7:
+      return (gps.satellites >= 8) ? GNSS_SPEED_QUALITY_HIGH : GNSS_SPEED_QUALITY_MID;
+    case 5:
+    case 8:
+    case 10:
+    case 2:
+    case 6:
+      return GNSS_SPEED_QUALITY_MID;
+    case 1:
+    case 3:
+    default:
+      return (gps.satellites >= 8) ? GNSS_SPEED_QUALITY_MID : GNSS_SPEED_QUALITY_LOW;
+  }
+}
+
+GnssLinkQuality classifyGnssLinkQuality(const GpsData &gps) {
+  if (!gps.sbfStreamActive) {
+    return GNSS_LINK_QUALITY_LOST;
+  }
+
+  if (!gps.receiverTimeValid || !gps.pvtValid || gps.sbfAgeMs > 250U || gps.pvtAgeMs > 400U) {
+    return GNSS_LINK_QUALITY_HOLD;
+  }
+
+  return GNSS_LINK_QUALITY_LIVE;
+}
+
+const char *gnssSpeedQualityToText(GnssSpeedQuality quality) {
+  switch (quality) {
+    case GNSS_SPEED_QUALITY_HIGH: return "HIGH";
+    case GNSS_SPEED_QUALITY_MID: return "MID";
+    case GNSS_SPEED_QUALITY_LOW: return "LOW";
+    case GNSS_SPEED_QUALITY_LOST:
+    default: return "LOST";
+  }
+}
+
+const char *gnssLinkQualityToText(GnssLinkQuality quality) {
+  switch (quality) {
+    case GNSS_LINK_QUALITY_LIVE: return "LIVE";
+    case GNSS_LINK_QUALITY_HOLD: return "HOLD";
+    case GNSS_LINK_QUALITY_LOST:
+    default: return "LOST";
+  }
 }
 
 bool onLcdColorTransDone(esp_lcd_panel_handle_t panel,
@@ -119,11 +213,15 @@ void printGpsSummary() {
   const FusionState &fusionState = fusionManager.getState();
   const CanDecodedSpeedState &canSpeedState = canManager.getDecodedSpeedState();
   const PulseInputState &pulseState = pulseInputManager.getState();
+  const GnssSpeedQuality gnssSpeedQuality = classifyGnssSpeedQuality(gps);
+  const GnssLinkQuality gnssLinkQuality = classifyGnssLinkQuality(gps);
+  char localTimeBuf[16] = {0};
+  const bool hasLocalTime = tryFormatLocalTimeFromUtc(gps.timeStr, localTimeBuf, sizeof(localTimeBuf));
 
   Serial.println("========== GPS SUMMARY ==========");
   Serial.printf(
       "GNSS Test   : %s%s\n",
-      gnssTestOverrideEnabled ? "OFF" : "ON",
+      gnssTestOverrideEnabled ? "ON" : "OFF",
       gnssTestOverrideEnabled ? " (override speed active)" : "");
   Serial.printf("Valid      : %s\n", gps.pvtValid ? "YES" : "NO");
   Serial.printf(
@@ -154,12 +252,20 @@ void printGpsSummary() {
         canSpeedState.identifier);
   }
   Serial.printf(
-      "EXT Pulse  : configured=%s valid=%s stale=%s count=%lu speed=%.2f km/h\n",
+      "EXT Pulse  : configured=%s valid=%s stale=%s count=%lu speed=%.2f km/h filtered=%.2f km/h\n",
       pulseState.configured ? "YES" : "NO",
       pulseState.valid ? "YES" : "NO",
       pulseState.stale ? "YES" : "NO",
       static_cast<unsigned long>(pulseState.totalPulseCount),
-      pulseState.speedKmh);
+      pulseState.speedKmh,
+      pulseState.filteredSpeedKmh);
+  Serial.printf(
+      "GNSS Qual  : speed=%s link=%s sbfAge=%lu ms pvtAge=%lu ms timeAge=%lu ms\n",
+      gnssSpeedQualityToText(gnssSpeedQuality),
+      gnssLinkQualityToText(gnssLinkQuality),
+      static_cast<unsigned long>(gps.sbfAgeMs),
+      static_cast<unsigned long>(gps.pvtAgeMs),
+      static_cast<unsigned long>(gps.receiverTimeAgeMs));
   Serial.printf("Sats       : %d\n", gps.satellites);
   Serial.printf("Speed      : %.2f km/h\n", distanceManager.getSelectedSpeedKmh());
   Serial.print("Lat        : ");
@@ -170,6 +276,7 @@ void printGpsSummary() {
   Serial.printf("Dist       : %.2f m\n", distanceManager.getDistanceMeters());
   Serial.printf("Date       : %s\n", strlen(gps.dateStr) ? gps.dateStr : "---- -- --");
   Serial.printf("Time(UTC)  : %s\n", strlen(gps.timeStr) ? gps.timeStr : "--:--:--");
+  Serial.printf("Time(Local): %s\n", hasLocalTime ? localTimeBuf : "--:--:--");
   Serial.println("=================================");
 }
 
@@ -189,6 +296,8 @@ UiSnapshot buildUiSnapshot(const GpsData &gps) {
   snapshot.sourceMode = fusionState.mode;
   snapshot.selectedSource = fusionState.selectedSource;
   snapshot.corrActive = fusionState.corrActive;
+  snapshot.gnssSpeedQuality = classifyGnssSpeedQuality(gps);
+  snapshot.gnssLinkQuality = classifyGnssLinkQuality(gps);
   snprintf(snapshot.canMonitorText, sizeof(snapshot.canMonitorText), "%s", canManager.getMonitorText());
   snapshot.gps = gps;
   return snapshot;
@@ -265,18 +374,34 @@ void appSetup() {
         GNSS_TEST_SATS);
   }
 
+  const AppConfig::PulseInputConfig &pulseCfg = AppConfig::kPulseInputConfig;
+  const float pulseMetersPerPulse = AppConfig::resolvePulseMetersPerPulse(pulseCfg.calibration);
   if (pulseInputManager.begin(
-          AppConfig::kPulseInputPin,
-          AppConfig::kPulseInputUsePullup,
-          AppConfig::kPulseInputMetersPerPulse,
-          AppConfig::kPulseInputSampleWindowMs,
-          AppConfig::kPulseInputTimeoutMs)) {
+          pulseCfg.inputPin,
+          pulseCfg.usePullup,
+          pulseMetersPerPulse,
+          pulseCfg.sampleWindowMs,
+          pulseCfg.timeoutMs,
+          pulseCfg.minPulseIntervalUs,
+          pulseCfg.speedFilterAlpha)) {
     Serial.printf(
-        "Pulse input ready: pin=%d meters/pulse=%.4f window=%lu ms timeout=%lu ms\n",
-        static_cast<int>(AppConfig::kPulseInputPin),
-        AppConfig::kPulseInputMetersPerPulse,
-        static_cast<unsigned long>(AppConfig::kPulseInputSampleWindowMs),
-        static_cast<unsigned long>(AppConfig::kPulseInputTimeoutMs));
+        "Pulse input ready: pin=%d meters/pulse=%.4f window=%lu ms timeout=%lu ms minPulse=%lu us alpha=%.2f\n",
+        static_cast<int>(pulseCfg.inputPin),
+        pulseMetersPerPulse,
+        static_cast<unsigned long>(pulseCfg.sampleWindowMs),
+        static_cast<unsigned long>(pulseCfg.timeoutMs),
+        static_cast<unsigned long>(pulseCfg.minPulseIntervalUs),
+        pulseCfg.speedFilterAlpha);
+    if (pulseCfg.calibration.useDirectMetersPerPulse) {
+      Serial.printf(
+          "Pulse calibration: direct meters/pulse=%.4f\n",
+          pulseCfg.calibration.directMetersPerPulse);
+    } else {
+      Serial.printf(
+          "Pulse calibration: circumference=%.4f m, pulses/rev=%u\n",
+          pulseCfg.calibration.wheelCircumferenceMeters,
+          static_cast<unsigned>(pulseCfg.calibration.pulsesPerWheelRevolution));
+    }
   } else {
     Serial.println("Pulse input disabled or not configured");
   }
