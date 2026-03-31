@@ -15,7 +15,7 @@ public:
 private:
   enum TimeDisplayMode : uint8_t {
     TIME_DISPLAY_TRIP = 0,
-    TIME_DISPLAY_UTC = 1,
+    TIME_DISPLAY_LOCAL = 1,
   };
 
   enum DistanceDisplayUnit : uint8_t {
@@ -51,7 +51,7 @@ private:
   void showCanMonitor(bool visible);
   void setCellHighlight(lv_obj_t *cell, bool active);
   void updateUtcAnchor(const char *utcText);
-  bool tryFormatAnchoredUtc(char *timeBuf, size_t timeBufSize) const;
+  bool tryFormatAnchoredLocal(char *timeBuf, size_t timeBufSize) const;
   void updateSpeedDisplay(
       lv_obj_t *valueLabel,
       lv_obj_t *unitLabel,
@@ -102,13 +102,17 @@ private:
   lv_obj_t *labelSatsValue_ = nullptr;
   lv_obj_t *labelModeStatus_ = nullptr;
   lv_obj_t *labelUsingStatus_ = nullptr;
+  lv_obj_t *labelGnssQuality_ = nullptr;
+  lv_obj_t *labelGnssLink_ = nullptr;
 
   float lastExtSpeedKmh_ = 0.0f;
   float lastGpsSpeedKmh_ = 0.0f;
   float lastCanSpeedKmh_ = 0.0f;
+  int lastValidSats_ = 0;
   bool hasLastExtSpeed_ = false;
   bool hasLastGpsSpeed_ = false;
   bool hasLastCanSpeed_ = false;
+  bool hasLastSats_ = false;
   bool hasUtcAnchor_ = false;
   uint32_t utcAnchorMs_ = 0;
   uint32_t utcAnchorSecondsOfDay_ = 0;

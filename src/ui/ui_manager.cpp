@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../app/app_config.h"
+
 namespace {
 
 constexpr float KMH_TO_MPH = 0.621371f;
@@ -13,6 +15,19 @@ constexpr lv_coord_t TIME_CHAR_WIDTH = 31;
 constexpr lv_coord_t TIME_CHAR_HEIGHT = 92;
 constexpr uint32_t LIVE_TEXT_COLOR = 0xFFFFFF;
 constexpr uint32_t STALE_TEXT_COLOR = 0x5A5A5A;
+constexpr uint32_t SATS_LIVE_COLOR = 0xD8F7FF;
+
+uint32_t applyLocalUtcOffset(uint32_t secondsOfDay) {
+  int32_t shiftedSeconds =
+      static_cast<int32_t>(secondsOfDay) + (AppConfig::kLocalUtcOffsetMinutes * 60);
+
+  shiftedSeconds %= 86400;
+  if (shiftedSeconds < 0) {
+    shiftedSeconds += 86400;
+  }
+
+  return static_cast<uint32_t>(shiftedSeconds);
+}
 
 const char *modeToText(SpeedSourceMode mode) {
   switch (mode) {
@@ -30,6 +45,44 @@ const char *sourceToText(SpeedSource source) {
     case SPEED_SOURCE_CAN: return "CAN";
     case SPEED_SOURCE_EXT: return "EXT";
     default: return "NONE";
+  }
+}
+
+const char *gnssSpeedQualityToText(GnssSpeedQuality quality) {
+  switch (quality) {
+    case GNSS_SPEED_QUALITY_HIGH: return "SPDQ HIGH";
+    case GNSS_SPEED_QUALITY_MID: return "SPDQ MID";
+    case GNSS_SPEED_QUALITY_LOW: return "SPDQ LOW";
+    case GNSS_SPEED_QUALITY_LOST:
+    default: return "SPDQ LOST";
+  }
+}
+
+const char *gnssLinkQualityToText(GnssLinkQuality quality) {
+  switch (quality) {
+    case GNSS_LINK_QUALITY_LIVE: return "LINK LIVE";
+    case GNSS_LINK_QUALITY_HOLD: return "LINK HOLD";
+    case GNSS_LINK_QUALITY_LOST:
+    default: return "LINK LOST";
+  }
+}
+
+lv_color_t gnssSpeedQualityColor(GnssSpeedQuality quality) {
+  switch (quality) {
+    case GNSS_SPEED_QUALITY_HIGH: return lv_color_hex(0x82ff3f);
+    case GNSS_SPEED_QUALITY_MID: return lv_color_hex(0xffd24a);
+    case GNSS_SPEED_QUALITY_LOW: return lv_color_hex(0xff8f66);
+    case GNSS_SPEED_QUALITY_LOST:
+    default: return lv_color_hex(STALE_TEXT_COLOR);
+  }
+}
+
+lv_color_t gnssLinkQualityColor(GnssLinkQuality quality) {
+  switch (quality) {
+    case GNSS_LINK_QUALITY_LIVE: return lv_color_hex(0x6be8ff);
+    case GNSS_LINK_QUALITY_HOLD: return lv_color_hex(0xffd24a);
+    case GNSS_LINK_QUALITY_LOST:
+    default: return lv_color_hex(STALE_TEXT_COLOR);
   }
 }
 
@@ -198,9 +251,21 @@ void UiManager::begin() {
   lv_obj_set_style_text_font(labelUsingStatus_, FONT_UNIT, 0);
   lv_obj_set_pos(labelUsingStatus_, 24, 56);
 
+  labelGnssQuality_ = lv_label_create(cellSats_);
+  lv_label_set_text(labelGnssQuality_, "SPDQ LOST");
+  lv_obj_set_style_text_color(labelGnssQuality_, lv_color_hex(STALE_TEXT_COLOR), 0);
+  lv_obj_set_style_text_font(labelGnssQuality_, FONT_UNIT, 0);
+  lv_obj_set_pos(labelGnssQuality_, 24, 96);
+
+  labelGnssLink_ = lv_label_create(cellSats_);
+  lv_label_set_text(labelGnssLink_, "LINK LOST");
+  lv_obj_set_style_text_color(labelGnssLink_, lv_color_hex(STALE_TEXT_COLOR), 0);
+  lv_obj_set_style_text_font(labelGnssLink_, FONT_UNIT, 0);
+  lv_obj_set_pos(labelGnssLink_, 24, 132);
+
   labelSatsValue_ = lv_label_create(cellSats_);
   lv_label_set_text(labelSatsValue_, "0");
-  lv_obj_set_style_text_color(labelSatsValue_, lv_color_hex(0xd8f7ff), 0);
+  lv_obj_set_style_text_color(labelSatsValue_, lv_color_hex(SATS_LIVE_COLOR), 0);
   lv_obj_set_style_text_font(labelSatsValue_, FONT_NUMBER, 0);
   lv_obj_set_pos(labelSatsValue_, 72, 120);
 
@@ -338,10 +403,45 @@ void UiManager::update(const UiSnapshot &snapshot) {
 
   formatTime(valueBuf, sizeof(valueBuf), snapshot);
   renderTimeText(valueBuf);
-  lv_label_set_text(labelTimeTitle_, timeMode_ == TIME_DISPLAY_TRIP ? "Time" : "UTC");
+  lv_label_set_text(labelTimeTitle_, timeMode_ == TIME_DISPLAY_TRIP ? "Time" : "Local");
 
-  snprintf(valueBuf, sizeof(valueBuf), "%d", snapshot.gps.satellites > 99 ? 99 : snapshot.gps.satellites);
+  bool satsStale = false;
+  int displaySats = snapshot.gps.satellites;
+  if (snapshot.gpsValid) {
+    lastValidSats_ = snapshot.gps.satellites;
+    hasLastSats_ = true;
+  } else if (hasLastSats_) {
+    displaySats = lastValidSats_;
+    satsStale = true;
+  }
+
+  if (!snapshot.gpsValid && !hasLastSats_) {
+    snprintf(valueBuf, sizeof(valueBuf), "--");
+  } else {
+    snprintf(valueBuf, sizeof(valueBuf), "%d", displaySats > 99 ? 99 : displaySats);
+  }
   lv_label_set_text(labelSatsValue_, valueBuf);
+  lv_obj_set_style_text_color(
+      labelSatsValue_,
+      lv_color_hex(satsStale ? STALE_TEXT_COLOR : SATS_LIVE_COLOR),
+      0);
+
+  if (labelGnssQuality_ != nullptr) {
+    lv_label_set_text(labelGnssQuality_, gnssSpeedQualityToText(snapshot.gnssSpeedQuality));
+    lv_obj_set_style_text_color(
+        labelGnssQuality_,
+        gnssSpeedQualityColor(snapshot.gnssSpeedQuality),
+        0);
+  }
+
+  if (labelGnssLink_ != nullptr) {
+    lv_label_set_text(labelGnssLink_, gnssLinkQualityToText(snapshot.gnssLinkQuality));
+    lv_obj_set_style_text_color(
+        labelGnssLink_,
+        gnssLinkQualityColor(snapshot.gnssLinkQuality),
+        0);
+  }
+
   lv_label_set_text(labelCanMonitorText_, snapshot.canMonitorText[0] ? snapshot.canMonitorText : "Waiting for CAN data...");
 
   if (labelModeStatus_ != nullptr) {
@@ -476,7 +576,7 @@ void UiManager::toggleDistanceUnit() {
 
 void UiManager::toggleTimeMode() {
   timeMode_ =
-      (timeMode_ == TIME_DISPLAY_TRIP) ? TIME_DISPLAY_UTC : TIME_DISPLAY_TRIP;
+      (timeMode_ == TIME_DISPLAY_TRIP) ? TIME_DISPLAY_LOCAL : TIME_DISPLAY_TRIP;
 }
 
 void UiManager::showCanMonitor(bool visible) {
@@ -530,13 +630,14 @@ void UiManager::updateUtcAnchor(const char *utcText) {
   snprintf(lastUtcSource_, sizeof(lastUtcSource_), "%s", utcText);
 }
 
-bool UiManager::tryFormatAnchoredUtc(char *timeBuf, size_t timeBufSize) const {
+bool UiManager::tryFormatAnchoredLocal(char *timeBuf, size_t timeBufSize) const {
   if (!hasUtcAnchor_) {
     return false;
   }
 
   const uint32_t elapsedSeconds = (millis() - utcAnchorMs_) / 1000U;
-  const uint32_t totalSeconds = (utcAnchorSecondsOfDay_ + elapsedSeconds) % 86400U;
+  const uint32_t totalSeconds =
+      applyLocalUtcOffset((utcAnchorSecondsOfDay_ + elapsedSeconds) % 86400U);
   const uint32_t hour = totalSeconds / 3600U;
   const uint32_t minute = (totalSeconds / 60U) % 60U;
   const uint32_t second = totalSeconds % 60U;
@@ -618,16 +719,27 @@ void UiManager::formatDistance(
 }
 
 void UiManager::formatTime(char *timeBuf, size_t timeBufSize, const UiSnapshot &snapshot) const {
-  if (timeMode_ == TIME_DISPLAY_UTC) {
-    if (tryFormatAnchoredUtc(timeBuf, timeBufSize)) {
+  if (timeMode_ == TIME_DISPLAY_LOCAL) {
+    if (tryFormatAnchoredLocal(timeBuf, timeBufSize)) {
       return;
     }
 
-    snprintf(
-        timeBuf,
-        timeBufSize,
-        "%s",
-        strlen(snapshot.gps.timeStr) ? snapshot.gps.timeStr : "--:--:--");
+    unsigned hour = 0;
+    unsigned minute = 0;
+    unsigned second = 0;
+    if (sscanf(snapshot.gps.timeStr, "%2u:%2u:%2u", &hour, &minute, &second) == 3) {
+      const uint32_t localSeconds = applyLocalUtcOffset(
+          (hour * 3600U) + (minute * 60U) + second);
+      snprintf(
+          timeBuf,
+          timeBufSize,
+          "%02lu:%02lu:%02lu",
+          static_cast<unsigned long>(localSeconds / 3600U),
+          static_cast<unsigned long>((localSeconds / 60U) % 60U),
+          static_cast<unsigned long>(localSeconds % 60U));
+    } else {
+      snprintf(timeBuf, timeBufSize, "%s", "--:--:--");
+    }
     return;
   }
 

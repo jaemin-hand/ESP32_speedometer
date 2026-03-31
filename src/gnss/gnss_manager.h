@@ -25,5 +25,7 @@ private:
   uint8_t sbfBlockBuffer_[512] = {0};
   size_t sbfBlockSize_ = 0;
   size_t sbfExpectedLength_ = 0;
+  uint32_t lastSbfByteMs_ = 0;
   uint32_t lastPvtUpdateMs_ = 0;
+  uint32_t lastReceiverTimeUpdateMs_ = 0;
 };

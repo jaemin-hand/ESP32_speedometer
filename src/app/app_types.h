@@ -12,6 +12,11 @@ struct GpsData {
   int pvtMode = 0;
   int errorCode = 0;
   int satellites = 0;
+  bool sbfStreamActive = false;
+  bool receiverTimeValid = false;
+  uint32_t sbfAgeMs = UINT32_MAX;
+  uint32_t pvtAgeMs = UINT32_MAX;
+  uint32_t receiverTimeAgeMs = UINT32_MAX;
   float altitudeM = 0.0f;
   float speedKnots = 0.0f;
   float speedKmh = 0.0f;
@@ -40,6 +45,19 @@ enum AutoState : uint8_t {
   AUTO_STATE_GNSS_ACTIVE = 1,
   AUTO_STATE_CAN_FALLBACK = 2,
   AUTO_STATE_EXT_FALLBACK = 3,
+};
+
+enum GnssSpeedQuality : uint8_t {
+  GNSS_SPEED_QUALITY_LOST = 0,
+  GNSS_SPEED_QUALITY_LOW = 1,
+  GNSS_SPEED_QUALITY_MID = 2,
+  GNSS_SPEED_QUALITY_HIGH = 3,
+};
+
+enum GnssLinkQuality : uint8_t {
+  GNSS_LINK_QUALITY_LOST = 0,
+  GNSS_LINK_QUALITY_HOLD = 1,
+  GNSS_LINK_QUALITY_LIVE = 2,
 };
 
 struct FusionInputs {
@@ -90,6 +108,8 @@ struct UiSnapshot {
   SpeedSourceMode sourceMode = SPEED_MODE_AUTO;
   SpeedSource selectedSource = SPEED_SOURCE_NONE;
   bool corrActive = false;
+  GnssSpeedQuality gnssSpeedQuality = GNSS_SPEED_QUALITY_LOST;
+  GnssLinkQuality gnssLinkQuality = GNSS_LINK_QUALITY_LOST;
   char canMonitorText[CAN_MONITOR_TEXT_SIZE] = {0};
   GpsData gps;
 };

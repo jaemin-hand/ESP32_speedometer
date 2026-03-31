@@ -6,12 +6,14 @@
 
 namespace {
 
-constexpr uint8_t SBF_SYNC_1 = 0x24; // $ 의 아스키코드
-constexpr uint8_t SBF_SYNC_2 = 0x40; // @ 의 아스키코드 <- 이 두개가 연속이 되면 시작점을 알림
-constexpr uint16_t SBF_BLOCK_PVT_GEODETIC = 4007; // PVT 값이 들어있는 박스라고 알리는 ID
-constexpr uint16_t SBF_BLOCK_RECEIVER_TIME = 5914; // 받는 시간?이 들어있는 박스라고 알리는 ID
-constexpr size_t SBF_BLOCK_BUFFER_SIZE = 512; // 버퍼의 사이즈가 들어있는 박스라고 알리는 ID
+constexpr uint8_t SBF_SYNC_1 = 0x24; // $ ASCII
+constexpr uint8_t SBF_SYNC_2 = 0x40; // @ ASCII <- Notify the start point when these two are continuous
+constexpr uint16_t SBF_BLOCK_PVT_GEODETIC = 4007; // ID that informs you that the box contains the PVT value
+constexpr uint16_t SBF_BLOCK_RECEIVER_TIME = 5914; // ID that informs you that it is a box containing the time to receive it
+constexpr size_t SBF_BLOCK_BUFFER_SIZE = 512; // The ID that informs you that the size of the buffer is in the box
 constexpr uint32_t GNSS_PVT_TIMEOUT_MS = 300;
+constexpr uint32_t GNSS_SBF_STREAM_TIMEOUT_MS = 1000;
+constexpr uint32_t GNSS_RECEIVER_TIME_TIMEOUT_MS = 1500;
 constexpr double SBF_DNU_THRESHOLD = -1.99e10;
 constexpr double RAD_TO_DEGREES = 57.29577951308232;
 constexpr float MPS_TO_KNOTS = 1.9438445f;
@@ -54,7 +56,9 @@ void GnssManager::begin(HardwareSerial &serial, int rxPin, int txPin, uint32_t b
   serial_ = &serial;
   serial_->begin(baudRate, SERIAL_8N1, rxPin, txPin);
   gps_ = GpsData{};
+  lastSbfByteMs_ = 0;
   lastPvtUpdateMs_ = 0;
+  lastReceiverTimeUpdateMs_ = 0;
   resetDecoder();
 }
 
@@ -64,11 +68,23 @@ void GnssManager::update() {
   }
 
   while (serial_->available()) {
+    lastSbfByteMs_ = millis();
     processSbfByte(static_cast<uint8_t>(serial_->read()));
   }
 
+  const uint32_t nowMs = millis();
+  gps_.sbfAgeMs = (lastSbfByteMs_ != 0U) ? (nowMs - lastSbfByteMs_) : UINT32_MAX;
+  gps_.pvtAgeMs = (lastPvtUpdateMs_ != 0U) ? (nowMs - lastPvtUpdateMs_) : UINT32_MAX;
+  gps_.receiverTimeAgeMs =
+      (lastReceiverTimeUpdateMs_ != 0U) ? (nowMs - lastReceiverTimeUpdateMs_) : UINT32_MAX;
+  gps_.sbfStreamActive =
+      (lastSbfByteMs_ != 0U) && (gps_.sbfAgeMs <= GNSS_SBF_STREAM_TIMEOUT_MS);
+  gps_.receiverTimeValid =
+      (lastReceiverTimeUpdateMs_ != 0U) &&
+      (gps_.receiverTimeAgeMs <= GNSS_RECEIVER_TIME_TIMEOUT_MS) &&
+      (strlen(gps_.timeStr) >= 8U);
+
   if (gps_.pvtValid && (lastPvtUpdateMs_ != 0U)) {
-    const uint32_t nowMs = millis();
     if ((nowMs - lastPvtUpdateMs_) > GNSS_PVT_TIMEOUT_MS) {
       gps_.pvtValid = false;
       gps_.pvtMode = 0;
@@ -164,6 +180,8 @@ void GnssManager::parseReceiverTimeBlock(const uint8_t *block, uint16_t length) 
   if (length < 22) {
     return;
   }
+
+  lastReceiverTimeUpdateMs_ = millis();
 
   const int8_t utcYear = static_cast<int8_t>(block[14]);
   const int8_t utcMonth = static_cast<int8_t>(block[15]);
