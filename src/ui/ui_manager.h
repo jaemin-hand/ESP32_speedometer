@@ -114,6 +114,7 @@ private:
   bool hasLastCanSpeed_ = false;
   bool hasLastSats_ = false;
   bool hasUtcAnchor_ = false;
+  int32_t localUtcOffsetMinutes_ = 0;
   uint32_t utcAnchorMs_ = 0;
   uint32_t utcAnchorSecondsOfDay_ = 0;
   char lastUtcSource_[9] = {0};

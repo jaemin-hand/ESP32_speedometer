@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-03-31_26_GNSS_STATUS_LOCAL_TIME";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-01_27_LOCAL_TIME_GEO";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -79,9 +79,9 @@ GpsData buildEffectiveGpsData(const GpsData &rawGps) {
   return effectiveGps;
 }
 
-uint32_t applyLocalUtcOffset(uint32_t secondsOfDay) {
+uint32_t applyLocalUtcOffset(uint32_t secondsOfDay, int32_t offsetMinutes) {
   int32_t shiftedSeconds =
-      static_cast<int32_t>(secondsOfDay) + (AppConfig::kLocalUtcOffsetMinutes * 60);
+      static_cast<int32_t>(secondsOfDay) + (offsetMinutes * 60);
 
   shiftedSeconds %= 86400;
   if (shiftedSeconds < 0) {
@@ -91,7 +91,11 @@ uint32_t applyLocalUtcOffset(uint32_t secondsOfDay) {
   return static_cast<uint32_t>(shiftedSeconds);
 }
 
-bool tryFormatLocalTimeFromUtc(const char *utcText, char *outBuf, size_t outBufSize) {
+bool tryFormatLocalTimeFromUtc(
+    const char *utcText,
+    int32_t offsetMinutes,
+    char *outBuf,
+    size_t outBufSize) {
   if ((utcText == nullptr) || (strlen(utcText) < 8U)) {
     return false;
   }
@@ -104,7 +108,7 @@ bool tryFormatLocalTimeFromUtc(const char *utcText, char *outBuf, size_t outBufS
   }
 
   const uint32_t localSeconds =
-      applyLocalUtcOffset((hour * 3600U) + (minute * 60U) + second);
+      applyLocalUtcOffset((hour * 3600U) + (minute * 60U) + second, offsetMinutes);
   snprintf(
       outBuf,
       outBufSize,
@@ -168,6 +172,56 @@ const char *gnssLinkQualityToText(GnssLinkQuality quality) {
   }
 }
 
+struct LocalTimeInfo {
+  int32_t offsetMinutes = AppConfig::kLocalUtcOffsetMinutes;
+  bool inferred = false;
+  const char *label = "KST";
+};
+
+struct TimezoneGeoRule {
+  double minLat;
+  double maxLat;
+  double minLon;
+  double maxLon;
+  int32_t offsetMinutes;
+  const char *label;
+};
+
+constexpr TimezoneGeoRule kTimezoneGeoRules[] = {
+    {32.0, 39.8, 124.0, 132.5, 9 * 60, "KST"},
+    {24.0, 46.5, 122.0, 154.0, 9 * 60, "JST"},
+    {20.0, 26.5, 119.0, 123.5, 8 * 60, "CST"},
+    {18.0, 54.5, 73.0, 123.0, 8 * 60, "CST"},
+    {4.0, 21.5, 116.0, 127.5, 8 * 60, "PHT"},
+    {5.0, 21.0, 97.0, 106.5, 7 * 60, "ICT"},
+    {8.0, 24.5, 102.0, 110.5, 7 * 60, "ICT"},
+    {-11.0, 6.5, 95.0, 141.5, 7 * 60, "WIB"},
+    {-11.0, 6.5, 113.0, 125.5, 8 * 60, "WITA"},
+    {-11.0, 6.5, 125.0, 141.5, 9 * 60, "WIT"},
+    {6.0, 37.5, 68.0, 98.5, 5 * 60 + 30, "IST"},
+};
+
+LocalTimeInfo inferLocalTimeInfo(const GpsData &gps) {
+  if (gps.pvtValid && isfinite(gps.latitude) && isfinite(gps.longitude)) {
+    for (const TimezoneGeoRule &rule : kTimezoneGeoRules) {
+      if (gps.latitude >= rule.minLat && gps.latitude <= rule.maxLat &&
+          gps.longitude >= rule.minLon && gps.longitude <= rule.maxLon) {
+        return {
+            .offsetMinutes = rule.offsetMinutes,
+            .inferred = true,
+            .label = rule.label,
+        };
+      }
+    }
+  }
+
+  return {
+      .offsetMinutes = AppConfig::kLocalUtcOffsetMinutes,
+      .inferred = false,
+      .label = "KST",
+  };
+}
+
 bool onLcdColorTransDone(esp_lcd_panel_handle_t panel,
                          esp_lcd_dpi_panel_event_data_t *edata,
                          void *userCtx) {
@@ -215,8 +269,13 @@ void printGpsSummary() {
   const PulseInputState &pulseState = pulseInputManager.getState();
   const GnssSpeedQuality gnssSpeedQuality = classifyGnssSpeedQuality(gps);
   const GnssLinkQuality gnssLinkQuality = classifyGnssLinkQuality(gps);
+  const LocalTimeInfo localTimeInfo = inferLocalTimeInfo(gps);
   char localTimeBuf[16] = {0};
-  const bool hasLocalTime = tryFormatLocalTimeFromUtc(gps.timeStr, localTimeBuf, sizeof(localTimeBuf));
+  const bool hasLocalTime = tryFormatLocalTimeFromUtc(
+      gps.timeStr,
+      localTimeInfo.offsetMinutes,
+      localTimeBuf,
+      sizeof(localTimeBuf));
 
   Serial.println("========== GPS SUMMARY ==========");
   Serial.printf(
@@ -266,6 +325,12 @@ void printGpsSummary() {
       static_cast<unsigned long>(gps.sbfAgeMs),
       static_cast<unsigned long>(gps.pvtAgeMs),
       static_cast<unsigned long>(gps.receiverTimeAgeMs));
+  Serial.printf(
+      "Time Zone  : %s (%s, UTC%+ld:%02lu)\n",
+      localTimeInfo.label,
+      localTimeInfo.inferred ? "geo" : "fallback",
+      static_cast<long>(localTimeInfo.offsetMinutes / 60),
+      static_cast<unsigned long>(abs(localTimeInfo.offsetMinutes % 60)));
   Serial.printf("Sats       : %d\n", gps.satellites);
   Serial.printf("Speed      : %.2f km/h\n", distanceManager.getSelectedSpeedKmh());
   Serial.print("Lat        : ");
@@ -298,6 +363,9 @@ UiSnapshot buildUiSnapshot(const GpsData &gps) {
   snapshot.corrActive = fusionState.corrActive;
   snapshot.gnssSpeedQuality = classifyGnssSpeedQuality(gps);
   snapshot.gnssLinkQuality = classifyGnssLinkQuality(gps);
+  const LocalTimeInfo localTimeInfo = inferLocalTimeInfo(gps);
+  snapshot.localUtcOffsetMinutes = localTimeInfo.offsetMinutes;
+  snapshot.localUtcOffsetInferred = localTimeInfo.inferred;
   snprintf(snapshot.canMonitorText, sizeof(snapshot.canMonitorText), "%s", canManager.getMonitorText());
   snapshot.gps = gps;
   return snapshot;

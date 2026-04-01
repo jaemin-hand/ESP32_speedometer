@@ -5,8 +5,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "../app/app_config.h"
-
 namespace {
 
 constexpr float KMH_TO_MPH = 0.621371f;
@@ -17,9 +15,9 @@ constexpr uint32_t LIVE_TEXT_COLOR = 0xFFFFFF;
 constexpr uint32_t STALE_TEXT_COLOR = 0x5A5A5A;
 constexpr uint32_t SATS_LIVE_COLOR = 0xD8F7FF;
 
-uint32_t applyLocalUtcOffset(uint32_t secondsOfDay) {
+uint32_t applyLocalUtcOffset(uint32_t secondsOfDay, int32_t offsetMinutes) {
   int32_t shiftedSeconds =
-      static_cast<int32_t>(secondsOfDay) + (AppConfig::kLocalUtcOffsetMinutes * 60);
+      static_cast<int32_t>(secondsOfDay) + (offsetMinutes * 60);
 
   shiftedSeconds %= 86400;
   if (shiftedSeconds < 0) {
@@ -363,6 +361,7 @@ void UiManager::update(const UiSnapshot &snapshot) {
   char valueBuf[32];
   char unitBuf[16];
 
+  localUtcOffsetMinutes_ = snapshot.localUtcOffsetMinutes;
   updateUtcAnchor(snapshot.gps.timeStr);
 
   updateSpeedDisplay(
@@ -637,7 +636,7 @@ bool UiManager::tryFormatAnchoredLocal(char *timeBuf, size_t timeBufSize) const 
 
   const uint32_t elapsedSeconds = (millis() - utcAnchorMs_) / 1000U;
   const uint32_t totalSeconds =
-      applyLocalUtcOffset((utcAnchorSecondsOfDay_ + elapsedSeconds) % 86400U);
+      applyLocalUtcOffset((utcAnchorSecondsOfDay_ + elapsedSeconds) % 86400U, localUtcOffsetMinutes_);
   const uint32_t hour = totalSeconds / 3600U;
   const uint32_t minute = (totalSeconds / 60U) % 60U;
   const uint32_t second = totalSeconds % 60U;
@@ -729,7 +728,8 @@ void UiManager::formatTime(char *timeBuf, size_t timeBufSize, const UiSnapshot &
     unsigned second = 0;
     if (sscanf(snapshot.gps.timeStr, "%2u:%2u:%2u", &hour, &minute, &second) == 3) {
       const uint32_t localSeconds = applyLocalUtcOffset(
-          (hour * 3600U) + (minute * 60U) + second);
+          (hour * 3600U) + (minute * 60U) + second,
+          localUtcOffsetMinutes_);
       snprintf(
           timeBuf,
           timeBufSize,
