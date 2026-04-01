@@ -110,6 +110,8 @@ struct UiSnapshot {
   bool corrActive = false;
   GnssSpeedQuality gnssSpeedQuality = GNSS_SPEED_QUALITY_LOST;
   GnssLinkQuality gnssLinkQuality = GNSS_LINK_QUALITY_LOST;
+  int32_t localUtcOffsetMinutes = 0;
+  bool localUtcOffsetInferred = false;
   char canMonitorText[CAN_MONITOR_TEXT_SIZE] = {0};
   GpsData gps;
 };
