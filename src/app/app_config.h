@@ -10,6 +10,7 @@ namespace AppConfig {
 // require changing these values instead of touching app_main wiring.
 constexpr CanBackendType kRequestedCanBackend = CAN_BACKEND_CLASSIC;
 constexpr CanProfileId kActiveCanProfile = CAN_PROFILE_SANTAFE_CLASSIC;
+constexpr bool kAutoDetectCanProfiles = true;
 
 // Local clock display offset from UTC in minutes.
 constexpr int32_t kLocalUtcOffsetMinutes = 9 * 60;

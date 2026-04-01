@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-01_27_LOCAL_TIME_GEO";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-01_28_CAN_PROFILE_AUTO";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -303,6 +303,11 @@ void printGpsSummary() {
       static_cast<unsigned>(fusionState.corrSampleCount),
       fusionState.correctedCanSpeedKmh);
   Serial.printf("CAN Decode : %s\n", canSpeedState.valid ? "YES" : "NO");
+  Serial.printf(
+      "CAN Profile : %s (%s, conf=%u)\n",
+      canManager.getProfileName(),
+      canManager.isProfileAutoDetectEnabled() ? "auto" : "fixed",
+      static_cast<unsigned>(canManager.getDetectedProfileConfidence()));
   if (canSpeedState.valid) {
     Serial.printf(
         "CAN Speed  : %.2f km/h (%s, 0x%X)\n",
@@ -478,7 +483,8 @@ void appSetup() {
           static_cast<gpio_num_t>(CAN_TX_PIN),
           static_cast<gpio_num_t>(CAN_RX_PIN),
           AppConfig::kRequestedCanBackend,
-          AppConfig::kActiveCanProfile)) {
+          AppConfig::kActiveCanProfile,
+          AppConfig::kAutoDetectCanProfiles)) {
     const CanBackendCapabilities caps = canManager.getBackendCapabilities();
     const CanBackendRequirements reqs = canManager.getBackendRequirements();
     Serial.println("CAN(TWAI) initialized");
@@ -486,7 +492,13 @@ void appSetup() {
         "CAN backend requested: %s\n",
         (AppConfig::kRequestedCanBackend == CAN_BACKEND_CLASSIC) ? "CLASSIC_CAN" : "CAN_FD");
     Serial.printf("CAN backend in use: %s\n", canManager.getBackendName());
+    Serial.printf(
+        "CAN profile mode: %s\n",
+        canManager.isProfileAutoDetectEnabled() ? "AUTO_DETECT" : "FIXED");
     Serial.printf("CAN profile in use: %s\n", canManager.getProfileName());
+    Serial.printf(
+        "CAN profile confidence: %u\n",
+        static_cast<unsigned>(canManager.getDetectedProfileConfidence()));
     Serial.printf("CAN profile note: %s\n", canManager.getProfileBringupNote());
     Serial.printf(
         "CAN backend caps: classic=%s fd=%s ready=%s\n",

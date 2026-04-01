@@ -60,18 +60,21 @@ bool CanManager::begin(
     gpio_num_t txPin,
     gpio_num_t rxPin,
     CanBackendType backendType,
-    CanProfileId profileId) {
+    CanProfileId profileId,
+    bool autoDetectProfiles) {
   if (backend_ != nullptr) {
     backend_->end();
   }
 
   initialized_ = false;
-  profile_ = &getCanProfile(profileId);
-  backendType_ = profile_->backendType;
+  profileAutoDetect_ = autoDetectProfiles;
+  configuredProfile_ = &getCanProfile(profileId);
+  selectedProfile_ = configuredProfile_;
+  backendType_ = configuredProfile_->backendType;
   if (backendType != backendType_) {
     Serial.printf(
         "CAN profile '%s' overrides requested backend and uses %s\n",
-        profile_->name,
+        configuredProfile_->name,
         (backendType_ == CAN_BACKEND_CLASSIC) ? "CLASSIC_CAN" : "CAN_FD");
   }
   backend_ = selectBackend(backendType_);
@@ -89,6 +92,8 @@ bool CanManager::begin(
   monitorWrapped_ = false;
   memset(monitorLines_, 0, sizeof(monitorLines_));
   snprintf(monitorText_, sizeof(monitorText_), "Waiting for CAN data...");
+  resetTrackedProfiles();
+  initializeTrackedProfiles();
 
   const CanBackendOptions options = {
       .txPin = txPin,
@@ -123,11 +128,23 @@ const char *CanManager::getBackendName() const {
 }
 
 CanProfileId CanManager::getProfileId() const {
-  return (profile_ != nullptr) ? profile_->id : CAN_PROFILE_SANTAFE_CLASSIC;
+  const CanProfile *activeProfile =
+      (selectedProfile_ != nullptr) ? selectedProfile_ : configuredProfile_;
+  return (activeProfile != nullptr) ? activeProfile->id : CAN_PROFILE_SANTAFE_CLASSIC;
 }
 
 const char *CanManager::getProfileName() const {
-  return (profile_ != nullptr) ? profile_->name : "NONE";
+  const CanProfile *activeProfile =
+      (selectedProfile_ != nullptr) ? selectedProfile_ : configuredProfile_;
+  return (activeProfile != nullptr) ? activeProfile->name : "NONE";
+}
+
+bool CanManager::isProfileAutoDetectEnabled() const {
+  return profileAutoDetect_;
+}
+
+uint16_t CanManager::getDetectedProfileConfidence() const {
+  return detectedProfileConfidence_;
 }
 
 CanBackendCapabilities CanManager::getBackendCapabilities() const {
@@ -143,7 +160,10 @@ const char *CanManager::getBackendDiagnosticText() const {
 }
 
 const char *CanManager::getProfileBringupNote() const {
-  return (profile_ != nullptr) ? profile_->bringupNote : "CAN profile note unavailable";
+  const CanProfile *activeProfile =
+      (selectedProfile_ != nullptr) ? selectedProfile_ : configuredProfile_;
+  return (activeProfile != nullptr) ? activeProfile->bringupNote
+                                    : "CAN profile note unavailable";
 }
 
 void CanManager::poll(uint32_t nowMs) {
@@ -169,16 +189,13 @@ void CanManager::poll(uint32_t nowMs) {
     }
 
     appendMonitorLine(rxFrame);
-    tryDecodeSpeed(rxFrame, nowMs);
+    for (size_t i = 0; i < trackedProfileCount_; ++i) {
+      tryDecodeSpeedForProfile(trackedProfiles_[i], rxFrame, nowMs);
+    }
     ++framesProcessed;
   }
 
-  if (decodedSpeed_.valid &&
-      decodedSpeedTimeoutMs_ != 0U &&
-      (nowMs - decodedSpeed_.lastUpdateMs) > decodedSpeedTimeoutMs_) {
-    decodedSpeed_ = {};
-    decodedSpeedTimeoutMs_ = 0;
-  }
+  rebuildDetectedProfileState(nowMs);
 }
 
 bool CanManager::sendTestFrame() {
@@ -314,6 +331,90 @@ bool CanManager::decodeSpeedValue(
   }
 }
 
+void CanManager::initializeTrackedProfiles() {
+  if (configuredProfile_ == nullptr) {
+    return;
+  }
+
+  if (!profileAutoDetect_) {
+    trackedProfiles_[0].profile = configuredProfile_;
+    trackedProfileCount_ = 1;
+    selectedProfile_ = configuredProfile_;
+    return;
+  }
+
+  const size_t profileCount = getCanProfileCount();
+  for (size_t i = 0; i < profileCount && trackedProfileCount_ < kMaxTrackedProfiles; ++i) {
+    const CanProfile &profile = getCanProfileByIndex(i);
+    if (profile.backendType != backendType_) {
+      continue;
+    }
+
+    trackedProfiles_[trackedProfileCount_].profile = &profile;
+    ++trackedProfileCount_;
+  }
+
+  if (trackedProfileCount_ == 0U) {
+    trackedProfiles_[0].profile = configuredProfile_;
+    trackedProfileCount_ = 1;
+  }
+}
+
+void CanManager::resetTrackedProfiles() {
+  memset(trackedProfiles_, 0, sizeof(trackedProfiles_));
+  trackedProfileCount_ = 0;
+  detectedProfileConfidence_ = 0;
+  selectedProfile_ = configuredProfile_;
+  decodedSpeed_ = {};
+}
+
+void CanManager::rebuildDetectedProfileState(uint32_t nowMs) {
+  const CanProfile *bestProfile = nullptr;
+  const CanDecodedSpeedState *bestSpeed = nullptr;
+  uint16_t bestConfidence = 0;
+
+  for (size_t i = 0; i < trackedProfileCount_; ++i) {
+    CanProfileDetectState &detectState = trackedProfiles_[i];
+    if (detectState.profile == nullptr) {
+      continue;
+    }
+
+    if (detectState.decodedSpeed.valid &&
+        detectState.decodedSpeedTimeoutMs != 0U &&
+        (nowMs - detectState.decodedSpeed.lastUpdateMs) > detectState.decodedSpeedTimeoutMs) {
+      detectState.decodedSpeed = {};
+      detectState.decodedSpeedTimeoutMs = 0;
+      detectState.confidence = 0;
+    }
+
+    if (!detectState.decodedSpeed.valid) {
+      continue;
+    }
+
+    if ((bestProfile == nullptr) ||
+        (detectState.confidence > bestConfidence) ||
+        ((detectState.confidence == bestConfidence) &&
+         (detectState.decodedSpeed.decoderPriority > bestSpeed->decoderPriority))) {
+      bestProfile = detectState.profile;
+      bestSpeed = &detectState.decodedSpeed;
+      bestConfidence = detectState.confidence;
+    }
+  }
+
+  if ((bestProfile != nullptr) && (bestSpeed != nullptr)) {
+    selectedProfile_ = bestProfile;
+    decodedSpeed_ = *bestSpeed;
+    detectedProfileConfidence_ = bestConfidence;
+    decodedSpeedTimeoutMs_ = 0;
+    return;
+  }
+
+  selectedProfile_ = configuredProfile_;
+  decodedSpeed_ = {};
+  decodedSpeedTimeoutMs_ = 0;
+  detectedProfileConfidence_ = 0;
+}
+
 void CanManager::appendMonitorLine(const CanFrame &rxFrame) {
   char monitorLine[kMonitorLineLength] = {0};
   formatMonitorLine(rxFrame, monitorLine, sizeof(monitorLine));
@@ -395,16 +496,19 @@ void CanManager::rebuildMonitorText() {
   }
 }
 
-bool CanManager::tryDecodeSpeed(const CanFrame &rxFrame, uint32_t nowMs) {
+bool CanManager::tryDecodeSpeedForProfile(
+    CanProfileDetectState &detectState,
+    const CanFrame &rxFrame,
+    uint32_t nowMs) {
   // Speed decoding is optional and sits on top of the raw receive path.
   // Even when no decoder is enabled, CAN RX logging/monitoring should still
   // work exactly like the legacy receive loop.
-  if ((profile_ == nullptr) || (profile_->speedDecoders == nullptr)) {
+  if ((detectState.profile == nullptr) || (detectState.profile->speedDecoders == nullptr)) {
     return false;
   }
 
-  for (size_t i = 0; i < profile_->speedDecoderCount; ++i) {
-    const CanSpeedDecoderConfig &config = profile_->speedDecoders[i];
+  for (size_t i = 0; i < detectState.profile->speedDecoderCount; ++i) {
+    const CanSpeedDecoderConfig &config = detectState.profile->speedDecoders[i];
     if (!config.enabled) {
       continue;
     }
@@ -429,20 +533,26 @@ bool CanManager::tryDecodeSpeed(const CanFrame &rxFrame, uint32_t nowMs) {
     }
 
     const bool decodedStillFresh =
-        decodedSpeed_.valid &&
-        ((decodedSpeedTimeoutMs_ == 0U) ||
-         ((nowMs - decodedSpeed_.lastUpdateMs) <= decodedSpeedTimeoutMs_));
-    if (decodedStillFresh && (config.priority < decodedSpeed_.decoderPriority)) {
+        detectState.decodedSpeed.valid &&
+        ((detectState.decodedSpeedTimeoutMs == 0U) ||
+         ((nowMs - detectState.decodedSpeed.lastUpdateMs) <= detectState.decodedSpeedTimeoutMs));
+    if (decodedStillFresh && (config.priority < detectState.decodedSpeed.decoderPriority)) {
       continue;
     }
 
-    decodedSpeed_.valid = true;
-    decodedSpeed_.speedKmh = speedKmh;
-    decodedSpeed_.identifier = rxFrame.identifier;
-    decodedSpeed_.lastUpdateMs = nowMs;
-    decodedSpeed_.decoderName = config.name;
-    decodedSpeed_.decoderPriority = config.priority;
-    decodedSpeedTimeoutMs_ = config.timeoutMs;
+    detectState.decodedSpeed.valid = true;
+    detectState.decodedSpeed.speedKmh = speedKmh;
+    detectState.decodedSpeed.identifier = rxFrame.identifier;
+    detectState.decodedSpeed.lastUpdateMs = nowMs;
+    detectState.decodedSpeed.decoderName = config.name;
+    detectState.decodedSpeed.decoderPriority = config.priority;
+    detectState.decodedSpeedTimeoutMs = config.timeoutMs;
+    detectState.lastMatchMs = nowMs;
+    if (detectState.confidence <= (UINT16_MAX - 32U)) {
+      detectState.confidence = static_cast<uint16_t>(detectState.confidence + 32U);
+    } else {
+      detectState.confidence = UINT16_MAX;
+    }
     return true;
   }
 

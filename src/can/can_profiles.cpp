@@ -107,6 +107,18 @@ constexpr CanProfile kProfiles[] = {
 
 }  // namespace
 
+size_t getCanProfileCount() {
+  return sizeof(kProfiles) / sizeof(kProfiles[0]);
+}
+
+const CanProfile &getCanProfileByIndex(size_t index) {
+  if (index < getCanProfileCount()) {
+    return kProfiles[index];
+  }
+
+  return kProfiles[0];
+}
+
 const CanProfile &getCanProfile(CanProfileId profileId) {
   for (const CanProfile &profile : kProfiles) {
     if (profile.id == profileId) {
