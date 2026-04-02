@@ -38,7 +38,7 @@ bool FusionManager::updateStableFlag(
   return (nowMs - sinceMs) >= holdMs;
 }
 
-void FusionManager::updateCorrelationLearning(
+void FusionManager::updateCanCorrelationLearning(
     const FusionInputs &inputs,
     bool gnssStable,
     bool canStable) {
@@ -55,8 +55,8 @@ void FusionManager::updateCorrelationLearning(
     return;
   }
 
-  if (lastCorrSampleMs_ != 0U &&
-      (inputs.nowMs - lastCorrSampleMs_) < kCorrSampleIntervalMs) {
+  if (lastCanCorrSampleMs_ != 0U &&
+      (inputs.nowMs - lastCanCorrSampleMs_) < kCorrSampleIntervalMs) {
     return;
   }
 
@@ -66,14 +66,52 @@ void FusionManager::updateCorrelationLearning(
     return;
   }
 
-  if (corrSampleCount_ == 0U) {
-    corrFactor_ = sampleFactor;
+  if (canCorrSampleCount_ == 0U) {
+    canCorrFactor_ = sampleFactor;
   } else {
-    corrFactor_ = (1.0f - kCorrAlpha) * corrFactor_ + (kCorrAlpha * sampleFactor);
+    canCorrFactor_ = (1.0f - kCorrAlpha) * canCorrFactor_ + (kCorrAlpha * sampleFactor);
   }
 
-  lastCorrSampleMs_ = inputs.nowMs;
-  ++corrSampleCount_;
+  lastCanCorrSampleMs_ = inputs.nowMs;
+  ++canCorrSampleCount_;
+}
+
+void FusionManager::updateExtCorrelationLearning(
+    const FusionInputs &inputs,
+    bool gnssStable,
+    bool extStable) {
+  if (!gnssStable || !extStable) {
+    return;
+  }
+
+  if (inputs.gnssSpeedKmh < kCorrLearningMinSpeedKmh ||
+      inputs.extSpeedKmh < kCorrLearningMinSpeedKmh) {
+    return;
+  }
+
+  if (inputs.extSpeedKmh <= 0.0f) {
+    return;
+  }
+
+  if (lastExtCorrSampleMs_ != 0U &&
+      (inputs.nowMs - lastExtCorrSampleMs_) < kCorrSampleIntervalMs) {
+    return;
+  }
+
+  const float sampleFactor = inputs.gnssSpeedKmh / inputs.extSpeedKmh;
+  if (sampleFactor < kCorrLearningMinRatio ||
+      sampleFactor > kCorrLearningMaxRatio) {
+    return;
+  }
+
+  if (extCorrSampleCount_ == 0U) {
+    extCorrFactor_ = sampleFactor;
+  } else {
+    extCorrFactor_ = (1.0f - kCorrAlpha) * extCorrFactor_ + (kCorrAlpha * sampleFactor);
+  }
+
+  lastExtCorrSampleMs_ = inputs.nowMs;
+  ++extCorrSampleCount_;
 }
 
 void FusionManager::update(const FusionInputs &inputs) {
@@ -93,11 +131,16 @@ void FusionManager::update(const FusionInputs &inputs) {
       kExtStableHoldMs,
       extCandidateSinceMs_);
 
-  updateCorrelationLearning(inputs, gnssStable, canStable);
-  const bool corrLearned = corrSampleCount_ > 0U;
-  const float correctedCanSpeedKmh = corrLearned
-                                         ? (inputs.canSpeedKmh * corrFactor_)
+  updateCanCorrelationLearning(inputs, gnssStable, canStable);
+  updateExtCorrelationLearning(inputs, gnssStable, extStable);
+  const bool canCorrLearned = canCorrSampleCount_ > 0U;
+  const bool extCorrLearned = extCorrSampleCount_ > 0U;
+  const float correctedCanSpeedKmh = canCorrLearned
+                                         ? (inputs.canSpeedKmh * canCorrFactor_)
                                          : inputs.canSpeedKmh;
+  const float correctedExtSpeedKmh = extCorrLearned
+                                         ? (inputs.extSpeedKmh * extCorrFactor_)
+                                         : inputs.extSpeedKmh;
 
   state_.mode = mode_;
   state_.autoState = autoState_;
@@ -107,10 +150,19 @@ void FusionManager::update(const FusionInputs &inputs) {
   state_.gnssStable = gnssStable;
   state_.canStable = canStable;
   state_.extStable = extStable;
-  state_.corrLearned = corrLearned;
-  state_.corrFactor = corrFactor_;
+  state_.corrLearned = canCorrLearned || extCorrLearned;
+  state_.corrFactor = canCorrLearned ? canCorrFactor_ : (extCorrLearned ? extCorrFactor_ : 1.0f);
   state_.correctedCanSpeedKmh = correctedCanSpeedKmh;
-  state_.corrSampleCount = corrSampleCount_;
+  state_.correctedExtSpeedKmh = correctedExtSpeedKmh;
+  state_.corrSampleCount = canCorrLearned
+                               ? canCorrSampleCount_
+                               : (extCorrLearned ? extCorrSampleCount_ : 0U);
+  state_.canCorrLearned = canCorrLearned;
+  state_.canCorrFactor = canCorrFactor_;
+  state_.canCorrSampleCount = canCorrSampleCount_;
+  state_.extCorrLearned = extCorrLearned;
+  state_.extCorrFactor = extCorrFactor_;
+  state_.extCorrSampleCount = extCorrSampleCount_;
 
   switch (mode_) {
     case SPEED_MODE_AUTO:
@@ -173,14 +225,15 @@ void FusionManager::update(const FusionInputs &inputs) {
           if (inputs.canValid) {
             state_.selectedSource = SPEED_SOURCE_CAN;
             state_.selectedSpeedKmh = correctedCanSpeedKmh;
-            state_.corrActive = corrLearned;
+            state_.corrActive = canCorrLearned;
           }
           break;
 
         case AUTO_STATE_EXT_FALLBACK:
           if (inputs.extValid) {
             state_.selectedSource = SPEED_SOURCE_EXT;
-            state_.selectedSpeedKmh = inputs.extSpeedKmh;
+            state_.selectedSpeedKmh = correctedExtSpeedKmh;
+            state_.corrActive = extCorrLearned;
           }
           break;
 

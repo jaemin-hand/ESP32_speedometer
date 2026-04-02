@@ -84,7 +84,14 @@ struct FusionState {
   bool corrLearned = false;
   float corrFactor = 1.0f;
   float correctedCanSpeedKmh = 0.0f;
+  float correctedExtSpeedKmh = 0.0f;
   uint16_t corrSampleCount = 0;
+  bool canCorrLearned = false;
+  float canCorrFactor = 1.0f;
+  uint16_t canCorrSampleCount = 0;
+  bool extCorrLearned = false;
+  float extCorrFactor = 1.0f;
+  uint16_t extCorrSampleCount = 0;
 };
 
 enum UiAction : uint8_t {
