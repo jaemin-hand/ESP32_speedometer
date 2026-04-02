@@ -75,6 +75,98 @@ arduino-cli compile --clean --fqbn esp32:esp32:esp32p4 --board-options ChipVaria
 
 ## Current implementation notes
 
-- The `EXT` speed source is still a placeholder.
-- The CAN speed decoder table still contains a template entry and should be updated with the real vehicle signal mapping.
+## Current feature status
+
+- Speed sources
+  - `GNSS`: Septentrio mosaic-X5 SBF input over UART
+  - `CAN`: Classic CAN through ESP32-P4 TWAI
+  - `EXT`: external pulse input on `GPIO46`
+- Source selection
+  - Manual modes: `AUTO`, `GNSS`, `CAN`, `EXT`
+  - `AUTO` currently supports:
+    - GNSS stable detection
+    - CAN fallback
+    - EXT fallback
+    - GNSS/CAN correction-factor learning
+- GNSS UI
+  - `SATs` stale hold + gray rendering
+  - `SPDQ` speed quality status
+  - `LINK` GNSS stream freshness status
+  - `Trip / Local` time display toggle
+- Local time
+  - Geographic timezone inference is implemented with bounding-box rules
+  - Current implementation is heuristic, not a full timezone database
+  - DST is not handled yet
+
+## Current support scope
+
+- Classic CAN
+  - Raw CAN monitor: available
+  - CAN speed decode: currently validated for `SantaFe Classic CAN`
+  - Active speed candidates:
+    - `0x450` byte0 replay speed
+    - `0x386` wheel-average candidate
+- CAN profile auto-detect
+  - Runtime structure exists and tracks supported profiles
+  - In practice, Classic CAN currently has only the Santa Fe profile implemented
+  - Additional vehicles still require their own raw CAN logs and per-vehicle decoder rules
+- CAN-FD
+  - Project structure and placeholders exist
+  - Actual CAN-FD receive path is not implemented yet
+  - Planned direction: external CAN-FD controller such as `MCP2518FD`
+- Pulse input (`EXT`)
+  - Implemented and tested with switch/breadboard pulse injection
+  - Current default config is defined in `src/app/app_config.h`
+
+## Known limitations
+
+- `SantaFe Classic CAN` is the only Classic CAN vehicle profile currently validated for speed decoding.
+- New vehicle support requires raw CAN logging and decoder analysis before speed conversion can be added.
+- mosaic-X5 SBF output is currently most reliable during GNSS/AUTO testing when the board is used with USB-C connected.
+- `Local` time is location-inferred with coarse geo rules, not legal timezone-border precision.
+- `EXT` currently uses `GPIO46`, which may later conflict with the planned MCP2518FD SPI pin plan and can be reassigned in `src/app/app_config.h`.
+
+## Recommended test procedure
+
+### GNSS
+
+1. Connect mosaic-X5 over UART and USB-C for stable SBF testing.
+2. Confirm `PVTGeodetic + ReceiverTime` are streaming on `COM1`.
+3. Verify:
+   - `SATs`
+   - `SPDQ`
+   - `LINK`
+   - `Local` time
+
+### Classic CAN
+
+1. Replay or sniff Classic CAN at `500 kbps`.
+2. Open the CAN monitor page and confirm raw frames appear.
+3. For Santa Fe validation, send or observe:
+   - `0x450`
+   - `0x386`
+4. Confirm:
+   - `CAN Decode : YES`
+   - `CAN Speed : ... km/h`
+
+### AUTO
+
+1. Verify `GNSS only -> USING GNSS`
+2. Verify `CAN only -> USING CAN`
+3. Verify `EXT only -> USING EXT`
+4. Verify GNSS/CAN correction factor learns when both are stable above the learning threshold
+5. Verify GNSS loss causes fallback to CAN or EXT as expected
+
+### EXT pulse input
+
+1. Inject pulses into `GPIO46`
+2. Confirm `MODE EXT` shows EXT speed
+3. Confirm `AUTO` can enter `EXT_FALLBACK`
+4. Tune in `src/app/app_config.h` as needed:
+   - `wheelCircumferenceMeters`
+   - `pulsesPerWheelRevolution`
+   - `sampleWindowMs`
+   - `timeoutMs`
+   - `minPulseIntervalUs`
+   - `speedFilterAlpha`
 
