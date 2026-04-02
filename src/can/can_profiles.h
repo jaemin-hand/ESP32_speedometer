@@ -45,4 +45,6 @@ struct CanProfile {
   size_t speedDecoderCount = 0;
 };
 
+size_t getCanProfileCount();
+const CanProfile &getCanProfileByIndex(size_t index);
 const CanProfile &getCanProfile(CanProfileId profileId);
