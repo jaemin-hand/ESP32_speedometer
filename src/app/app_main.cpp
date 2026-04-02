@@ -26,12 +26,12 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-01_28_CAN_PROFILE_AUTO";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-02_29_CAN_386_VERIFY";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
 constexpr int GPS_RX_PIN = 3;  // mosaic TX -> esp GPIO3
-constexpr int GPS_TX_PIN = 47; // esp GPIO47 -> mosaic RX
+constexpr int GPS_TX_PIN = 47; // esp GPIO47 -> mosaic RX pin
 
 constexpr uint32_t UI_UPDATE_INTERVAL_MS = 33;
 constexpr uint32_t DEBUG_PRINT_INTERVAL_MS = 1000;
@@ -266,6 +266,12 @@ void printGpsSummary() {
   const GpsData gps = buildEffectiveGpsData(gnss.getData());
   const FusionState &fusionState = fusionManager.getState();
   const CanDecodedSpeedState &canSpeedState = canManager.getDecodedSpeedState();
+  CanDecodedSpeedState canReplayState = {};
+  CanDecodedSpeedState canWheelState = {};
+  const bool hasCanReplayState =
+      canManager.getDecoderDiagnostic("santafe_replay_speed", &canReplayState);
+  const bool hasCanWheelState =
+      canManager.getDecoderDiagnostic("santafe_wheel_avg_0x386", &canWheelState);
   const PulseInputState &pulseState = pulseInputManager.getState();
   const GnssSpeedQuality gnssSpeedQuality = classifyGnssSpeedQuality(gps);
   const GnssLinkQuality gnssLinkQuality = classifyGnssLinkQuality(gps);
@@ -314,6 +320,20 @@ void printGpsSummary() {
         canSpeedState.speedKmh,
         canSpeedState.decoderName,
         canSpeedState.identifier);
+  }
+  if (hasCanReplayState || hasCanWheelState) {
+    Serial.printf(
+        "CAN Compare: 0x450=%s%.2f  0x386=%s%.2f",
+        hasCanReplayState ? "" : "(n/a) ",
+        hasCanReplayState ? canReplayState.speedKmh : 0.0f,
+        hasCanWheelState ? "" : "(n/a) ",
+        hasCanWheelState ? canWheelState.speedKmh : 0.0f);
+    if (hasCanReplayState && hasCanWheelState) {
+      Serial.printf(
+          "  delta=%.2f",
+          canWheelState.speedKmh - canReplayState.speedKmh);
+    }
+    Serial.println();
   }
   Serial.printf(
       "EXT Pulse  : configured=%s valid=%s stale=%s count=%lu speed=%.2f km/h filtered=%.2f km/h\n",

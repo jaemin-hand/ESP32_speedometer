@@ -92,6 +92,7 @@ bool CanManager::begin(
   monitorWrapped_ = false;
   memset(monitorLines_, 0, sizeof(monitorLines_));
   snprintf(monitorText_, sizeof(monitorText_), "Waiting for CAN data...");
+  memset(decoderDiagnostics_, 0, sizeof(decoderDiagnostics_));
   resetTrackedProfiles();
   initializeTrackedProfiles();
 
@@ -196,6 +197,7 @@ void CanManager::poll(uint32_t nowMs) {
   }
 
   rebuildDetectedProfileState(nowMs);
+  expireDecoderDiagnostics(nowMs);
 }
 
 bool CanManager::sendTestFrame() {
@@ -233,6 +235,27 @@ float CanManager::getDecodedSpeedKmh() const {
 
 const CanDecodedSpeedState &CanManager::getDecodedSpeedState() const {
   return decodedSpeed_;
+}
+
+bool CanManager::getDecoderDiagnostic(
+    const char *decoderName,
+    CanDecodedSpeedState *outState) const {
+  if ((decoderName == nullptr) || (outState == nullptr)) {
+    return false;
+  }
+
+  for (size_t i = 0; i < kMaxDecoderDiagnostics; ++i) {
+    const CanDecoderDiagnosticState &diag = decoderDiagnostics_[i];
+    if (!diag.decodedSpeed.valid || (diag.decodedSpeed.decoderName == nullptr)) {
+      continue;
+    }
+    if (strcmp(diag.decodedSpeed.decoderName, decoderName) == 0) {
+      *outState = diag.decodedSpeed;
+      return true;
+    }
+  }
+
+  return false;
 }
 
 const char *CanManager::getMonitorText() const {
@@ -415,6 +438,53 @@ void CanManager::rebuildDetectedProfileState(uint32_t nowMs) {
   detectedProfileConfidence_ = 0;
 }
 
+void CanManager::updateDecoderDiagnostic(
+    const CanSpeedDecoderConfig &config,
+    uint32_t identifier,
+    float speedKmh,
+    uint32_t nowMs) {
+  size_t slotIndex = kMaxDecoderDiagnostics;
+
+  for (size_t i = 0; i < kMaxDecoderDiagnostics; ++i) {
+    if (decoderDiagnostics_[i].decodedSpeed.valid &&
+        decoderDiagnostics_[i].decodedSpeed.decoderName != nullptr &&
+        strcmp(decoderDiagnostics_[i].decodedSpeed.decoderName, config.name) == 0) {
+      slotIndex = i;
+      break;
+    }
+
+    if ((slotIndex == kMaxDecoderDiagnostics) &&
+        !decoderDiagnostics_[i].decodedSpeed.valid) {
+      slotIndex = i;
+    }
+  }
+
+  if (slotIndex >= kMaxDecoderDiagnostics) {
+    return;
+  }
+
+  decoderDiagnostics_[slotIndex].decodedSpeed.valid = true;
+  decoderDiagnostics_[slotIndex].decodedSpeed.speedKmh = speedKmh;
+  decoderDiagnostics_[slotIndex].decodedSpeed.identifier = identifier;
+  decoderDiagnostics_[slotIndex].decodedSpeed.lastUpdateMs = nowMs;
+  decoderDiagnostics_[slotIndex].decodedSpeed.decoderName = config.name;
+  decoderDiagnostics_[slotIndex].decodedSpeed.decoderPriority = config.priority;
+  decoderDiagnostics_[slotIndex].timeoutMs = config.timeoutMs;
+}
+
+void CanManager::expireDecoderDiagnostics(uint32_t nowMs) {
+  for (size_t i = 0; i < kMaxDecoderDiagnostics; ++i) {
+    CanDecoderDiagnosticState &diag = decoderDiagnostics_[i];
+    if (!diag.decodedSpeed.valid || (diag.timeoutMs == 0U)) {
+      continue;
+    }
+
+    if ((nowMs - diag.decodedSpeed.lastUpdateMs) > diag.timeoutMs) {
+      diag = {};
+    }
+  }
+}
+
 void CanManager::appendMonitorLine(const CanFrame &rxFrame) {
   char monitorLine[kMonitorLineLength] = {0};
   formatMonitorLine(rxFrame, monitorLine, sizeof(monitorLine));
@@ -548,6 +618,7 @@ bool CanManager::tryDecodeSpeedForProfile(
     detectState.decodedSpeed.decoderPriority = config.priority;
     detectState.decodedSpeedTimeoutMs = config.timeoutMs;
     detectState.lastMatchMs = nowMs;
+    updateDecoderDiagnostic(config, rxFrame.identifier, speedKmh, nowMs);
     if (detectState.confidence <= (UINT16_MAX - 32U)) {
       detectState.confidence = static_cast<uint16_t>(detectState.confidence + 32U);
     } else {

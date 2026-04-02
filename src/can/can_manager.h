@@ -22,12 +22,18 @@ struct CanProfileDetectState {
   uint16_t confidence = 0;
 };
 
+struct CanDecoderDiagnosticState {
+  CanDecodedSpeedState decodedSpeed = {};
+  uint32_t timeoutMs = 0;
+};
+
 class CanManager {
 public:
   static constexpr uint8_t kMonitorLineCount = 8;
   static constexpr size_t kMonitorLineLength = 48;
   static constexpr size_t kMonitorTextSize = (kMonitorLineCount * kMonitorLineLength) + 32;
   static constexpr size_t kMaxTrackedProfiles = 8;
+  static constexpr size_t kMaxDecoderDiagnostics = 8;
 
   // Keep the currently working classic CAN path as the baseline.
   // CAN-FD support will be added behind a separate backend without changing the
@@ -56,6 +62,9 @@ public:
   bool hasDecodedSpeed() const;
   float getDecodedSpeedKmh() const;
   const CanDecodedSpeedState &getDecodedSpeedState() const;
+  bool getDecoderDiagnostic(
+      const char *decoderName,
+      CanDecodedSpeedState *outState) const;
   const char *getMonitorText() const;
   void printStatus(const char *prefix = nullptr) const;
 
@@ -79,6 +88,12 @@ private:
       CanProfileDetectState &detectState,
       const CanFrame &rxFrame,
       uint32_t nowMs);
+  void updateDecoderDiagnostic(
+      const CanSpeedDecoderConfig &config,
+      uint32_t identifier,
+      float speedKmh,
+      uint32_t nowMs);
+  void expireDecoderDiagnostics(uint32_t nowMs);
   void rebuildDetectedProfileState(uint32_t nowMs);
   void initializeTrackedProfiles();
   void resetTrackedProfiles();
@@ -98,6 +113,7 @@ private:
   const CanProfile *selectedProfile_ = nullptr;
   CanProfileDetectState trackedProfiles_[kMaxTrackedProfiles] = {};
   size_t trackedProfileCount_ = 0;
+  CanDecoderDiagnosticState decoderDiagnostics_[kMaxDecoderDiagnostics] = {};
   uint16_t detectedProfileConfidence_ = 0;
   ICanBackend *backend_ = nullptr;
 };

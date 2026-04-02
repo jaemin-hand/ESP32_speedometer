@@ -4,19 +4,19 @@ namespace {
 
 constexpr CanSpeedDecoderConfig kSantaFeClassicDecoders[] = {
     {
-        true,
-        "santafe_replay_speed",
-        0x450,
-        false,
-        false,
-        CAN_SPEED_DECODER_UNSIGNED,
-        10,
-        0,
-        1,
-        CAN_SIGNAL_LITTLE_ENDIAN,
-        1.0f,
-        0.0f,
-        250,
+        true,                       // bool enabled
+        "santafe_replay_speed",     // const char *name
+        0x450,                      // uint32_t identifier = 0;
+        false,                      // bool extended = false;
+        false,                      // bool fdFormat = false;
+        CAN_SPEED_DECODER_UNSIGNED, // CanSpeedDecoderType decoderType = CAN_SPEED_DECODER_UNSIGNED;
+        10,                         // uint8_t priority = 0;
+        0,                          // uint8_t startByte = 0;
+        1,                          // uint8_t lengthBytes = 2;
+        CAN_SIGNAL_LITTLE_ENDIAN,   // CanSignalEndian endian = CAN_SIGNAL_LITTLE_ENDIAN;
+        1.0f,                       // float scale = 1.0f;
+        0.0f,                       // float offset = 0.0f;
+        250,                        // uint32_t timeoutMs = 200;
     },
     {
         true,
