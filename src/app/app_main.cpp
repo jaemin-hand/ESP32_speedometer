@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-02_29_CAN_386_VERIFY";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-02_31_EXT_TEST_TOGGLE";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -39,6 +39,7 @@ constexpr uint32_t CAN_STATUS_INTERVAL_MS = 1000;
 constexpr bool ENABLE_CAN_HEARTBEAT = false;
 constexpr uint32_t CAN_HEARTBEAT_INTERVAL_MS = 1000;
 constexpr float GNSS_TEST_SPEED_KMH = 40.0f;
+constexpr float EXT_TEST_SPEED_KMH = 39.0f;
 constexpr int GNSS_TEST_MODE = 1;
 constexpr int GNSS_TEST_SATS = 10;
 
@@ -59,6 +60,7 @@ PulseInputManager pulseInputManager;
 FusionManager fusionManager;
 UiManager uiManager;
 bool gnssTestOverrideEnabled = false;
+bool extTestOverrideEnabled = false;
 
 GpsData buildEffectiveGpsData(const GpsData &rawGps) {
   GpsData effectiveGps = rawGps;
@@ -77,6 +79,21 @@ GpsData buildEffectiveGpsData(const GpsData &rawGps) {
   }
 
   return effectiveGps;
+}
+
+PulseInputState buildEffectivePulseState(const PulseInputState &rawPulseState, uint32_t nowMs) {
+  PulseInputState effectivePulseState = rawPulseState;
+
+  if (extTestOverrideEnabled) {
+    effectivePulseState.configured = true;
+    effectivePulseState.valid = true;
+    effectivePulseState.stale = false;
+    effectivePulseState.speedKmh = EXT_TEST_SPEED_KMH;
+    effectivePulseState.filteredSpeedKmh = EXT_TEST_SPEED_KMH;
+    effectivePulseState.lastPulseMs = nowMs;
+  }
+
+  return effectivePulseState;
 }
 
 uint32_t applyLocalUtcOffset(uint32_t secondsOfDay, int32_t offsetMinutes) {
@@ -272,7 +289,8 @@ void printGpsSummary() {
       canManager.getDecoderDiagnostic("santafe_replay_speed", &canReplayState);
   const bool hasCanWheelState =
       canManager.getDecoderDiagnostic("santafe_wheel_avg_0x386", &canWheelState);
-  const PulseInputState &pulseState = pulseInputManager.getState();
+  const PulseInputState pulseState =
+      buildEffectivePulseState(pulseInputManager.getState(), millis());
   const GnssSpeedQuality gnssSpeedQuality = classifyGnssSpeedQuality(gps);
   const GnssLinkQuality gnssLinkQuality = classifyGnssLinkQuality(gps);
   const LocalTimeInfo localTimeInfo = inferLocalTimeInfo(gps);
@@ -288,6 +306,10 @@ void printGpsSummary() {
       "GNSS Test   : %s%s\n",
       gnssTestOverrideEnabled ? "ON" : "OFF",
       gnssTestOverrideEnabled ? " (override speed active)" : "");
+  Serial.printf(
+      "EXT Test    : %s%s\n",
+      extTestOverrideEnabled ? "ON" : "OFF",
+      extTestOverrideEnabled ? " (override speed active)" : "");
   Serial.printf("Valid      : %s\n", gps.pvtValid ? "YES" : "NO");
   Serial.printf(
       "Mode       : %d (%s)\n",
@@ -302,12 +324,23 @@ void printGpsSummary() {
       fusionState.canStable ? "YES" : "NO",
       fusionState.extStable ? "YES" : "NO");
   Serial.printf(
-      "Corr       : active=%s learned=%s factor=%.4f samples=%u correctedCAN=%.2f km/h\n",
+      "Corr       : active=%s learned=%s factor=%.4f samples=%u\n",
       fusionState.corrActive ? "YES" : "NO",
       fusionState.corrLearned ? "YES" : "NO",
       fusionState.corrFactor,
-      static_cast<unsigned>(fusionState.corrSampleCount),
+      static_cast<unsigned>(fusionState.corrSampleCount));
+  Serial.printf(
+      "Corr(CAN)  : learned=%s factor=%.4f samples=%u corrected=%.2f km/h\n",
+      fusionState.canCorrLearned ? "YES" : "NO",
+      fusionState.canCorrFactor,
+      static_cast<unsigned>(fusionState.canCorrSampleCount),
       fusionState.correctedCanSpeedKmh);
+  Serial.printf(
+      "Corr(EXT)  : learned=%s factor=%.4f samples=%u corrected=%.2f km/h\n",
+      fusionState.extCorrLearned ? "YES" : "NO",
+      fusionState.extCorrFactor,
+      static_cast<unsigned>(fusionState.extCorrSampleCount),
+      fusionState.correctedExtSpeedKmh);
   Serial.printf("CAN Decode : %s\n", canSpeedState.valid ? "YES" : "NO");
   Serial.printf(
       "CAN Profile : %s (%s, conf=%u)\n",
@@ -372,7 +405,8 @@ void printGpsSummary() {
 
 UiSnapshot buildUiSnapshot(const GpsData &gps) {
   const FusionState &fusionState = fusionManager.getState();
-  const PulseInputState &pulseState = pulseInputManager.getState();
+  const PulseInputState pulseState =
+      buildEffectivePulseState(pulseInputManager.getState(), millis());
 
   UiSnapshot snapshot;
   snapshot.extValid = pulseState.valid;
@@ -465,6 +499,11 @@ void appSetup() {
         GNSS_TEST_SPEED_KMH,
         GNSS_TEST_MODE,
         GNSS_TEST_SATS);
+  }
+  if (extTestOverrideEnabled) {
+    Serial.printf(
+        "EXT test override active: %.1f km/h\n",
+        EXT_TEST_SPEED_KMH);
   }
 
   const AppConfig::PulseInputConfig &pulseCfg = AppConfig::kPulseInputConfig;
@@ -560,6 +599,12 @@ void appLoop() {
           GNSS_TEST_SPEED_KMH,
           GNSS_TEST_MODE,
           GNSS_TEST_SATS);
+    } else if (ch == 'e' || ch == 'E') {
+      extTestOverrideEnabled = !extTestOverrideEnabled;
+      Serial.printf(
+          "EXT test override -> %s (%.1f km/h)\n",
+          extTestOverrideEnabled ? "ON" : "OFF",
+          EXT_TEST_SPEED_KMH);
     }
   }
 
@@ -578,6 +623,8 @@ void appLoop() {
 
   gnss.update();
   const GpsData gps = buildEffectiveGpsData(gnss.getData());
+  const PulseInputState pulseState =
+      buildEffectivePulseState(pulseInputManager.getState(), nowMs);
 
   FusionInputs fusionInputs;
   fusionInputs.nowMs = nowMs;
@@ -587,8 +634,8 @@ void appLoop() {
   fusionInputs.gnssSpeedKmh = gps.speedKmh;
   fusionInputs.canValid = canManager.hasDecodedSpeed();
   fusionInputs.canSpeedKmh = canManager.getDecodedSpeedKmh();
-  fusionInputs.extValid = pulseInputManager.isValid();
-  fusionInputs.extSpeedKmh = pulseInputManager.getSpeedKmh();
+  fusionInputs.extValid = pulseState.valid;
+  fusionInputs.extSpeedKmh = pulseState.speedKmh;
 
   fusionManager.update(fusionInputs);
   distanceManager.update(nowMs, fusionManager.getState().selectedSpeedKmh);
