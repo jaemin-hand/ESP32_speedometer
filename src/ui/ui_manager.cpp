@@ -84,6 +84,19 @@ lv_color_t gnssLinkQualityColor(GnssLinkQuality quality) {
   }
 }
 
+lv_color_t gnssCn0Color(const GpsData &gps) {
+  if (!gps.cn0Valid) {
+    return lv_color_hex(STALE_TEXT_COLOR);
+  }
+  if (gps.cn0AvgDbHz >= 40.0f && gps.cn0SignalCount >= 8U) {
+    return lv_color_hex(0x82ff3f);
+  }
+  if (gps.cn0AvgDbHz >= 34.0f && gps.cn0SignalCount >= 4U) {
+    return lv_color_hex(0xffd24a);
+  }
+  return lv_color_hex(0xff8f66);
+}
+
 #if LV_FONT_MONTSERRAT_48
   #define FONT_NUMBER (&lv_font_montserrat_48)
 #elif LV_FONT_MONTSERRAT_40
@@ -260,6 +273,12 @@ void UiManager::begin() {
   lv_obj_set_style_text_color(labelGnssLink_, lv_color_hex(STALE_TEXT_COLOR), 0);
   lv_obj_set_style_text_font(labelGnssLink_, FONT_UNIT, 0);
   lv_obj_set_pos(labelGnssLink_, 24, 132);
+
+  labelGnssCn0_ = lv_label_create(cellSats_);
+  lv_label_set_text(labelGnssCn0_, "C/N0 --.-");
+  lv_obj_set_style_text_color(labelGnssCn0_, lv_color_hex(STALE_TEXT_COLOR), 0);
+  lv_obj_set_style_text_font(labelGnssCn0_, FONT_UNIT, 0);
+  lv_obj_set_pos(labelGnssCn0_, 24, 168);
 
   labelSatsValue_ = lv_label_create(cellSats_);
   lv_label_set_text(labelSatsValue_, "0");
@@ -439,6 +458,20 @@ void UiManager::update(const UiSnapshot &snapshot) {
         labelGnssLink_,
         gnssLinkQualityColor(snapshot.gnssLinkQuality),
         0);
+  }
+
+  if (labelGnssCn0_ != nullptr) {
+    if (snapshot.gps.cn0Valid) {
+      snprintf(
+          valueBuf,
+          sizeof(valueBuf),
+          "C/N0 %.1f",
+          static_cast<double>(snapshot.gps.cn0AvgDbHz));
+    } else {
+      snprintf(valueBuf, sizeof(valueBuf), "C/N0 --.-");
+    }
+    lv_label_set_text(labelGnssCn0_, valueBuf);
+    lv_obj_set_style_text_color(labelGnssCn0_, gnssCn0Color(snapshot.gps), 0);
   }
 
   lv_label_set_text(labelCanMonitorText_, snapshot.canMonitorText[0] ? snapshot.canMonitorText : "Waiting for CAN data...");

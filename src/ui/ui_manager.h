@@ -104,6 +104,7 @@ private:
   lv_obj_t *labelUsingStatus_ = nullptr;
   lv_obj_t *labelGnssQuality_ = nullptr;
   lv_obj_t *labelGnssLink_ = nullptr;
+  lv_obj_t *labelGnssCn0_ = nullptr;
 
   float lastExtSpeedKmh_ = 0.0f;
   float lastGpsSpeedKmh_ = 0.0f;
