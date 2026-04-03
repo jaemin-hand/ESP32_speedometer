@@ -26,12 +26,13 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-02_31_EXT_TEST_TOGGLE";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-03_35_GNSS_460800";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
 constexpr int GPS_RX_PIN = 3;  // mosaic TX -> esp GPIO3
 constexpr int GPS_TX_PIN = 47; // esp GPIO47 -> mosaic RX pin
+constexpr uint32_t GPS_BAUD_RATE = 460800;
 
 constexpr uint32_t UI_UPDATE_INTERVAL_MS = 33;
 constexpr uint32_t DEBUG_PRINT_INTERVAL_MS = 1000;
@@ -40,6 +41,9 @@ constexpr bool ENABLE_CAN_HEARTBEAT = false;
 constexpr uint32_t CAN_HEARTBEAT_INTERVAL_MS = 1000;
 constexpr float GNSS_TEST_SPEED_KMH = 40.0f;
 constexpr float EXT_TEST_SPEED_KMH = 39.0f;
+constexpr float GNSS_TEST_CN0_AVG_DBHZ = 42.0f;
+constexpr float GNSS_TEST_CN0_MAX_DBHZ = 47.0f;
+constexpr uint8_t GNSS_TEST_CN0_SIGNAL_COUNT = 12;
 constexpr int GNSS_TEST_MODE = 1;
 constexpr int GNSS_TEST_SATS = 10;
 
@@ -69,13 +73,19 @@ GpsData buildEffectiveGpsData(const GpsData &rawGps) {
     effectiveGps.pvtValid = true;
     effectiveGps.pvtMode = GNSS_TEST_MODE;
     effectiveGps.satellites = GNSS_TEST_SATS;
+    effectiveGps.cn0Valid = true;
+    effectiveGps.cn0SignalCount = GNSS_TEST_CN0_SIGNAL_COUNT;
+    effectiveGps.cn0AvgDbHz = GNSS_TEST_CN0_AVG_DBHZ;
+    effectiveGps.cn0MaxDbHz = GNSS_TEST_CN0_MAX_DBHZ;
     effectiveGps.sbfStreamActive = true;
     effectiveGps.receiverTimeValid = true;
     effectiveGps.sbfAgeMs = 0;
     effectiveGps.pvtAgeMs = 0;
+    effectiveGps.cn0AgeMs = 0;
     effectiveGps.receiverTimeAgeMs = 0;
     effectiveGps.speedKmh = GNSS_TEST_SPEED_KMH;
     effectiveGps.speedKnots = GNSS_TEST_SPEED_KMH / 1.852f;
+    // effectiveGps.cn0_Max_Age_Ms = 0;
   }
 
   return effectiveGps;
@@ -139,6 +149,16 @@ bool tryFormatLocalTimeFromUtc(
 GnssSpeedQuality classifyGnssSpeedQuality(const GpsData &gps) {
   if (!gps.pvtValid) {
     return GNSS_SPEED_QUALITY_LOST;
+  }
+
+  if (gps.cn0Valid && gps.cn0AgeMs <= 1500U) {
+    if (gps.cn0AvgDbHz >= 40.0f && gps.cn0SignalCount >= 8U) {
+      return GNSS_SPEED_QUALITY_HIGH;
+    }
+    if (gps.cn0AvgDbHz >= 34.0f && gps.cn0SignalCount >= 4U) {
+      return GNSS_SPEED_QUALITY_MID;
+    }
+    return GNSS_SPEED_QUALITY_LOW;
   }
 
   switch (gps.pvtMode) {
@@ -384,6 +404,13 @@ void printGpsSummary() {
       static_cast<unsigned long>(gps.pvtAgeMs),
       static_cast<unsigned long>(gps.receiverTimeAgeMs));
   Serial.printf(
+      "GNSS C/N0  : valid=%s avg=%.1f dB-Hz max=%.1f dB-Hz n=%u age=%lu ms\n",
+      gps.cn0Valid ? "YES" : "NO",
+      gps.cn0AvgDbHz,
+      gps.cn0MaxDbHz,
+      static_cast<unsigned>(gps.cn0SignalCount),
+      static_cast<unsigned long>(gps.cn0AgeMs));
+  Serial.printf(
       "Time Zone  : %s (%s, UTC%+ld:%02lu)\n",
       localTimeInfo.label,
       localTimeInfo.inferred ? "geo" : "fallback",
@@ -491,8 +518,8 @@ void appSetup() {
   indevDrv.read_cb = myTouchpadRead;
   lv_indev_drv_register(&indevDrv);
 
-  gnss.begin(gpsSerial, GPS_RX_PIN, GPS_TX_PIN);
-  Serial.println("GNSS serial ready for SBF");
+  gnss.begin(gpsSerial, GPS_RX_PIN, GPS_TX_PIN, GPS_BAUD_RATE);
+  Serial.printf("GNSS serial ready for SBF @ %lu bps\n", static_cast<unsigned long>(GPS_BAUD_RATE));
   if (gnssTestOverrideEnabled) {
     Serial.printf(
         "GNSS test override active: %.1f km/h, mode=%d, sats=%d\n",
@@ -648,6 +675,7 @@ void appLoop() {
   if ((nowMs - lastCanStatusMs) >= CAN_STATUS_INTERVAL_MS) {
     lastCanStatusMs = nowMs;
     canManager.printStatus("CAN status");
+    gnss.printSbfDiagnostics("GNSS SBF status");
   }
 
   if ((nowMs - lastUiUpdateMs) >= UI_UPDATE_INTERVAL_MS) {
@@ -661,5 +689,3 @@ void appLoop() {
 }
 
 #pragma GCC pop_options
-
-// CNO 값 참고해보기

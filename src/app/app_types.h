@@ -12,10 +12,15 @@ struct GpsData {
   int pvtMode = 0;
   int errorCode = 0;
   int satellites = 0;
+  bool cn0Valid = false;
+  uint8_t cn0SignalCount = 0;
+  float cn0AvgDbHz = 0.0f;
+  float cn0MaxDbHz = 0.0f;
   bool sbfStreamActive = false;
   bool receiverTimeValid = false;
   uint32_t sbfAgeMs = UINT32_MAX;
   uint32_t pvtAgeMs = UINT32_MAX;
+  uint32_t cn0AgeMs = UINT32_MAX;
   uint32_t receiverTimeAgeMs = UINT32_MAX;
   float altitudeM = 0.0f;
   float speedKnots = 0.0f;
