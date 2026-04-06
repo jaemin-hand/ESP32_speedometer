@@ -26,7 +26,7 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-03_35_GNSS_460800";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-06_36_UI_CN0_STALE";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
@@ -69,6 +69,10 @@ bool extTestOverrideEnabled = false;
 GpsData buildEffectiveGpsData(const GpsData &rawGps) {
   GpsData effectiveGps = rawGps;
 
+  if(effectiveGps.cn0AgeMs > effectiveGps.cn0_Max_Age_Ms && effectiveGps.cn0_Max_Age_Ms < 4294967295) {
+    effectiveGps.cn0_Max_Age_Ms = effectiveGps.cn0AgeMs;
+  }
+
   if (gnssTestOverrideEnabled) {
     effectiveGps.pvtValid = true;
     effectiveGps.pvtMode = GNSS_TEST_MODE;
@@ -85,7 +89,7 @@ GpsData buildEffectiveGpsData(const GpsData &rawGps) {
     effectiveGps.receiverTimeAgeMs = 0;
     effectiveGps.speedKmh = GNSS_TEST_SPEED_KMH;
     effectiveGps.speedKnots = GNSS_TEST_SPEED_KMH / 1.852f;
-    // effectiveGps.cn0_Max_Age_Ms = 0;
+    effectiveGps.cn0_Max_Age_Ms = 0;
   }
 
   return effectiveGps;
@@ -404,12 +408,13 @@ void printGpsSummary() {
       static_cast<unsigned long>(gps.pvtAgeMs),
       static_cast<unsigned long>(gps.receiverTimeAgeMs));
   Serial.printf(
-      "GNSS C/N0  : valid=%s avg=%.1f dB-Hz max=%.1f dB-Hz n=%u age=%lu ms\n",
+      "GNSS C/N0  : valid=%s avg=%.1f dB-Hz max=%.1f dB-Hz n=%u age=%lu ms  Max_cn0AgeMs = %lu ms\n",
       gps.cn0Valid ? "YES" : "NO",
       gps.cn0AvgDbHz,
       gps.cn0MaxDbHz,
       static_cast<unsigned>(gps.cn0SignalCount),
-      static_cast<unsigned long>(gps.cn0AgeMs));
+      static_cast<unsigned long>(gps.cn0AgeMs),
+      static_cast<unsigned long>(gps.cn0_Max_Age_Ms));
   Serial.printf(
       "Time Zone  : %s (%s, UTC%+ld:%02lu)\n",
       localTimeInfo.label,

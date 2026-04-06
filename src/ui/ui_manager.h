@@ -102,17 +102,18 @@ private:
   lv_obj_t *labelSatsValue_ = nullptr;
   lv_obj_t *labelModeStatus_ = nullptr;
   lv_obj_t *labelUsingStatus_ = nullptr;
-  lv_obj_t *labelGnssQuality_ = nullptr;
   lv_obj_t *labelGnssLink_ = nullptr;
   lv_obj_t *labelGnssCn0_ = nullptr;
 
   float lastExtSpeedKmh_ = 0.0f;
   float lastGpsSpeedKmh_ = 0.0f;
   float lastCanSpeedKmh_ = 0.0f;
+  float lastValidGnssCn0DbHz_ = 0.0f;
   int lastValidSats_ = 0;
   bool hasLastExtSpeed_ = false;
   bool hasLastGpsSpeed_ = false;
   bool hasLastCanSpeed_ = false;
+  bool hasLastGnssCn0_ = false;
   bool hasLastSats_ = false;
   bool hasUtcAnchor_ = false;
   int32_t localUtcOffsetMinutes_ = 0;

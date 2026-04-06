@@ -46,32 +46,12 @@ const char *sourceToText(SpeedSource source) {
   }
 }
 
-const char *gnssSpeedQualityToText(GnssSpeedQuality quality) {
-  switch (quality) {
-    case GNSS_SPEED_QUALITY_HIGH: return "SPDQ HIGH";
-    case GNSS_SPEED_QUALITY_MID: return "SPDQ MID";
-    case GNSS_SPEED_QUALITY_LOW: return "SPDQ LOW";
-    case GNSS_SPEED_QUALITY_LOST:
-    default: return "SPDQ LOST";
-  }
-}
-
 const char *gnssLinkQualityToText(GnssLinkQuality quality) {
   switch (quality) {
     case GNSS_LINK_QUALITY_LIVE: return "LINK LIVE";
     case GNSS_LINK_QUALITY_HOLD: return "LINK HOLD";
     case GNSS_LINK_QUALITY_LOST:
     default: return "LINK LOST";
-  }
-}
-
-lv_color_t gnssSpeedQualityColor(GnssSpeedQuality quality) {
-  switch (quality) {
-    case GNSS_SPEED_QUALITY_HIGH: return lv_color_hex(0x82ff3f);
-    case GNSS_SPEED_QUALITY_MID: return lv_color_hex(0xffd24a);
-    case GNSS_SPEED_QUALITY_LOW: return lv_color_hex(0xff8f66);
-    case GNSS_SPEED_QUALITY_LOST:
-    default: return lv_color_hex(STALE_TEXT_COLOR);
   }
 }
 
@@ -262,23 +242,17 @@ void UiManager::begin() {
   lv_obj_set_style_text_font(labelUsingStatus_, FONT_UNIT, 0);
   lv_obj_set_pos(labelUsingStatus_, 24, 56);
 
-  labelGnssQuality_ = lv_label_create(cellSats_);
-  lv_label_set_text(labelGnssQuality_, "SPDQ LOST");
-  lv_obj_set_style_text_color(labelGnssQuality_, lv_color_hex(STALE_TEXT_COLOR), 0);
-  lv_obj_set_style_text_font(labelGnssQuality_, FONT_UNIT, 0);
-  lv_obj_set_pos(labelGnssQuality_, 24, 96);
-
   labelGnssLink_ = lv_label_create(cellSats_);
   lv_label_set_text(labelGnssLink_, "LINK LOST");
   lv_obj_set_style_text_color(labelGnssLink_, lv_color_hex(STALE_TEXT_COLOR), 0);
   lv_obj_set_style_text_font(labelGnssLink_, FONT_UNIT, 0);
-  lv_obj_set_pos(labelGnssLink_, 24, 132);
+  lv_obj_set_pos(labelGnssLink_, 24, 96);
 
   labelGnssCn0_ = lv_label_create(cellSats_);
   lv_label_set_text(labelGnssCn0_, "C/N0 --.-");
   lv_obj_set_style_text_color(labelGnssCn0_, lv_color_hex(STALE_TEXT_COLOR), 0);
   lv_obj_set_style_text_font(labelGnssCn0_, FONT_UNIT, 0);
-  lv_obj_set_pos(labelGnssCn0_, 24, 168);
+  lv_obj_set_pos(labelGnssCn0_, 24, 132);
 
   labelSatsValue_ = lv_label_create(cellSats_);
   lv_label_set_text(labelSatsValue_, "0");
@@ -444,14 +418,6 @@ void UiManager::update(const UiSnapshot &snapshot) {
       lv_color_hex(satsStale ? STALE_TEXT_COLOR : SATS_LIVE_COLOR),
       0);
 
-  if (labelGnssQuality_ != nullptr) {
-    lv_label_set_text(labelGnssQuality_, gnssSpeedQualityToText(snapshot.gnssSpeedQuality));
-    lv_obj_set_style_text_color(
-        labelGnssQuality_,
-        gnssSpeedQualityColor(snapshot.gnssSpeedQuality),
-        0);
-  }
-
   if (labelGnssLink_ != nullptr) {
     lv_label_set_text(labelGnssLink_, gnssLinkQualityToText(snapshot.gnssLinkQuality));
     lv_obj_set_style_text_color(
@@ -461,17 +427,30 @@ void UiManager::update(const UiSnapshot &snapshot) {
   }
 
   if (labelGnssCn0_ != nullptr) {
+    bool cn0Stale = false;
+    float displayCn0DbHz = snapshot.gps.cn0AvgDbHz;
     if (snapshot.gps.cn0Valid) {
+      lastValidGnssCn0DbHz_ = snapshot.gps.cn0AvgDbHz;
+      hasLastGnssCn0_ = true;
+    } else if (hasLastGnssCn0_) {
+      displayCn0DbHz = lastValidGnssCn0DbHz_;
+      cn0Stale = true;
+    }
+
+    if (snapshot.gps.cn0Valid || hasLastGnssCn0_) {
       snprintf(
           valueBuf,
           sizeof(valueBuf),
           "C/N0 %.1f",
-          static_cast<double>(snapshot.gps.cn0AvgDbHz));
+          static_cast<double>(displayCn0DbHz));
     } else {
       snprintf(valueBuf, sizeof(valueBuf), "C/N0 --.-");
     }
     lv_label_set_text(labelGnssCn0_, valueBuf);
-    lv_obj_set_style_text_color(labelGnssCn0_, gnssCn0Color(snapshot.gps), 0);
+    lv_obj_set_style_text_color(
+        labelGnssCn0_,
+        cn0Stale ? lv_color_hex(STALE_TEXT_COLOR) : gnssCn0Color(snapshot.gps),
+        0);
   }
 
   lv_label_set_text(labelCanMonitorText_, snapshot.canMonitorText[0] ? snapshot.canMonitorText : "Waiting for CAN data...");

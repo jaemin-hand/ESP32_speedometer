@@ -21,6 +21,7 @@ struct GpsData {
   uint32_t sbfAgeMs = UINT32_MAX;
   uint32_t pvtAgeMs = UINT32_MAX;
   uint32_t cn0AgeMs = UINT32_MAX;
+  uint32_t cn0_Max_Age_Ms = UINT32_MAX;
   uint32_t receiverTimeAgeMs = UINT32_MAX;
   float altitudeM = 0.0f;
   float speedKnots = 0.0f;
