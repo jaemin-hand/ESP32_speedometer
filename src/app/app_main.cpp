@@ -26,13 +26,14 @@
 
 namespace {
 
-constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-06_36_UI_CN0_STALE";
+constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-06_37_MEASEPOCH_DIAG";
 
 constexpr int CAN_RX_PIN = 2; // == receiver RX label
 constexpr int CAN_TX_PIN = 48; // == transceiver TX label
 constexpr int GPS_RX_PIN = 3;  // mosaic TX -> esp GPIO3
 constexpr int GPS_TX_PIN = 47; // esp GPIO47 -> mosaic RX pin
 constexpr uint32_t GPS_BAUD_RATE = 460800;
+constexpr size_t GPS_UART_RX_BUFFER_SIZE = 8192;
 
 constexpr uint32_t UI_UPDATE_INTERVAL_MS = 33;
 constexpr uint32_t DEBUG_PRINT_INTERVAL_MS = 1000;
@@ -68,10 +69,6 @@ bool extTestOverrideEnabled = false;
 
 GpsData buildEffectiveGpsData(const GpsData &rawGps) {
   GpsData effectiveGps = rawGps;
-
-  if(effectiveGps.cn0AgeMs > effectiveGps.cn0_Max_Age_Ms && effectiveGps.cn0_Max_Age_Ms < 4294967295) {
-    effectiveGps.cn0_Max_Age_Ms = effectiveGps.cn0AgeMs;
-  }
 
   if (gnssTestOverrideEnabled) {
     effectiveGps.pvtValid = true;
@@ -523,8 +520,12 @@ void appSetup() {
   indevDrv.read_cb = myTouchpadRead;
   lv_indev_drv_register(&indevDrv);
 
+  gpsSerial.setRxBufferSize(GPS_UART_RX_BUFFER_SIZE);
   gnss.begin(gpsSerial, GPS_RX_PIN, GPS_TX_PIN, GPS_BAUD_RATE);
   Serial.printf("GNSS serial ready for SBF @ %lu bps\n", static_cast<unsigned long>(GPS_BAUD_RATE));
+  Serial.printf(
+      "GNSS UART RX buffer: %u bytes\n",
+      static_cast<unsigned>(GPS_UART_RX_BUFFER_SIZE));
   if (gnssTestOverrideEnabled) {
     Serial.printf(
         "GNSS test override active: %.1f km/h, mode=%d, sats=%d\n",
