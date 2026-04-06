@@ -13,7 +13,7 @@ constexpr uint16_t SBF_BLOCK_MEAS_EPOCH = 4027;
 constexpr uint16_t SBF_BLOCK_RECEIVER_TIME = 5914; // ID that informs you that it is a box containing the time to receive it
 constexpr size_t SBF_BLOCK_BUFFER_SIZE = 4096; // MeasEpoch can exceed 512 bytes when many signals are tracked.
 constexpr uint32_t GNSS_PVT_TIMEOUT_MS = 300;
-constexpr uint32_t GNSS_CN0_TIMEOUT_MS = 1500;
+constexpr uint32_t GNSS_CN0_TIMEOUT_MS = 10000;
 constexpr uint32_t GNSS_SBF_STREAM_TIMEOUT_MS = 1000;
 constexpr uint32_t GNSS_RECEIVER_TIME_TIMEOUT_MS = 1500;
 constexpr double SBF_DNU_THRESHOLD = -1.99e10;
@@ -70,6 +70,11 @@ void GnssManager::begin(HardwareSerial &serial, int rxPin, int txPin, uint32_t b
   sbfLengthRejectCount_ = 0;
   lastSbfBlockNumber_ = 0;
   lastSbfBlockLength_ = 0;
+  lastMeasSignalCount_ = 0;
+  lastMeasType1Length_ = 0;
+  lastMeasType2Length_ = 0;
+  lastMeasFirstN2_ = 0;
+  memset(lastMeasFirstBytes_, 0, sizeof(lastMeasFirstBytes_));
   resetDecoder();
 }
 
@@ -115,6 +120,14 @@ void GnssManager::update() {
       gps_.cn0MaxDbHz = 0.0f;
     }
   }
+  
+  if(gps_.cn0_Max_Age_Ms == 4294967295) {
+    gps_.cn0_Max_Age_Ms = 0;
+  }
+
+  if(gps_.cn0AgeMs > gps_.cn0_Max_Age_Ms) {
+    gps_.cn0_Max_Age_Ms = gps_.cn0AgeMs;
+  }
 }
 
 const GpsData &GnssManager::getData() const {
@@ -135,6 +148,32 @@ void GnssManager::printSbfDiagnostics(const char *label) const {
       static_cast<unsigned long>(sbfUnknownBlockCount_),
       static_cast<unsigned long>(sbfCrcRejectCount_),
       static_cast<unsigned long>(sbfLengthRejectCount_));
+  Serial.printf(
+      "SBF meas: n=%u sb1=%u sb2=%u n2=%u bytes=%02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+      static_cast<unsigned>(lastMeasSignalCount_),
+      static_cast<unsigned>(lastMeasType1Length_),
+      static_cast<unsigned>(lastMeasType2Length_),
+      static_cast<unsigned>(lastMeasFirstN2_),
+      lastMeasFirstBytes_[0],
+      lastMeasFirstBytes_[1],
+      lastMeasFirstBytes_[2],
+      lastMeasFirstBytes_[3],
+      lastMeasFirstBytes_[4],
+      lastMeasFirstBytes_[5],
+      lastMeasFirstBytes_[6],
+      lastMeasFirstBytes_[7],
+      lastMeasFirstBytes_[8],
+      lastMeasFirstBytes_[9],
+      lastMeasFirstBytes_[10],
+      lastMeasFirstBytes_[11],
+      lastMeasFirstBytes_[12],
+      lastMeasFirstBytes_[13],
+      lastMeasFirstBytes_[14],
+      lastMeasFirstBytes_[15],
+      lastMeasFirstBytes_[16],
+      lastMeasFirstBytes_[17],
+      lastMeasFirstBytes_[18],
+      lastMeasFirstBytes_[19]);
 }
 
 const char *GnssManager::pvtStatusToText(int pvtMode, int errorCode) {
@@ -254,6 +293,9 @@ void GnssManager::parseMeasEpochBlock(const uint8_t *block, uint16_t length) {
   const uint8_t signalCount = block[14];
   const uint8_t type1Length = block[15];
   const uint8_t type2Length = block[16];
+  lastMeasSignalCount_ = signalCount;
+  lastMeasType1Length_ = type1Length;
+  lastMeasType2Length_ = type2Length;
   if (signalCount == 0U || type1Length < 20U) {
     return;
   }
@@ -270,8 +312,18 @@ void GnssManager::parseMeasEpochBlock(const uint8_t *block, uint16_t length) {
       break;
     }
 
+    if (i == 0U) {
+      const size_t copyLen =
+          ((length - offset) < sizeof(lastMeasFirstBytes_)) ? (length - offset) : sizeof(lastMeasFirstBytes_);
+      memset(lastMeasFirstBytes_, 0, sizeof(lastMeasFirstBytes_));
+      memcpy(lastMeasFirstBytes_, block + offset, copyLen);
+    }
+
     const uint8_t cn0Raw = block[offset + 15];
     const uint8_t n2 = block[offset + 19];
+    if (i == 0U) {
+      lastMeasFirstN2_ = n2;
+    }
     if (cn0Raw != 255U) {
       const float cn0DbHz = static_cast<float>(cn0Raw) * 0.25f;
       if (cn0DbHz > 0.0f && cn0DbHz < 80.0f) {

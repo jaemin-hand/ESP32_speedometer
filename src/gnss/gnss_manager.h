@@ -39,4 +39,9 @@ private:
   uint32_t sbfLengthRejectCount_ = 0;
   uint16_t lastSbfBlockNumber_ = 0;
   uint16_t lastSbfBlockLength_ = 0;
+  uint8_t lastMeasSignalCount_ = 0;
+  uint8_t lastMeasType1Length_ = 0;
+  uint8_t lastMeasType2Length_ = 0;
+  uint8_t lastMeasFirstN2_ = 0;
+  uint8_t lastMeasFirstBytes_[32] = {0};
 };
