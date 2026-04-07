@@ -8,6 +8,8 @@
 
 class UiManager {
 public:
+  static constexpr uint8_t kSpeedGaugeSegmentCount = 10;
+
   void begin();
   void update(const UiSnapshot &snapshot);
   uint8_t consumeActions();
@@ -49,7 +51,18 @@ private:
       lv_coord_t y,
       lv_coord_t w,
       lv_coord_t h);
+  static void createSpeedGauge(
+      lv_obj_t *parent,
+      lv_obj_t **segments,
+      lv_coord_t x,
+      lv_coord_t y,
+      lv_coord_t w);
   static void onSpeedSegmentDraw(lv_event_t *e);
+  static void updateSpeedGauge(
+      lv_obj_t **segments,
+      float displaySpeedKmh,
+      bool active,
+      bool stale);
 
   void queueAction(uint8_t action);
   void toggleDisplayUnit(DisplayUnit &unit);
@@ -64,6 +77,7 @@ private:
   void updateSpeedDisplay(
       lv_obj_t *valueLabel,
       lv_obj_t *unitLabel,
+      lv_obj_t **gaugeSegments,
       float incomingSpeedKmh,
       bool valid,
       DisplayUnit unit,
@@ -113,6 +127,9 @@ private:
   lv_obj_t *labelUsingStatus_ = nullptr;
   lv_obj_t *labelGnssLink_ = nullptr;
   lv_obj_t *labelGnssCn0_ = nullptr;
+  lv_obj_t *extGaugeSegments_[kSpeedGaugeSegmentCount] = {};
+  lv_obj_t *gpsGaugeSegments_[kSpeedGaugeSegmentCount] = {};
+  lv_obj_t *canGaugeSegments_[kSpeedGaugeSegmentCount] = {};
 
   struct SegmentDisplayState {
     char text[8] = "--.-";

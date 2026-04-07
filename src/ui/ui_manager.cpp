@@ -17,6 +17,17 @@ constexpr uint32_t SATS_LIVE_COLOR = 0xD8F7FF;
 constexpr uint8_t SPEED_SEGMENT_SLOT_COUNT = 5;
 constexpr uint32_t SEGMENT_OFF_COLOR_LIVE = 0x151515;
 constexpr uint32_t SEGMENT_OFF_COLOR_STALE = 0x0E0E0E;
+constexpr float SPEED_GAUGE_STEP_KMH = 10.0f;
+constexpr float SPEED_GAUGE_BLUE_RANGE_KMH = 100.0f;
+constexpr float SPEED_GAUGE_MAX_KMH = 200.0f;
+constexpr lv_coord_t SPEED_GAUGE_SEGMENT_HEIGHT = 21;
+constexpr lv_coord_t SPEED_GAUGE_SEGMENT_GAP = 8;
+constexpr lv_coord_t SPEED_GAUGE_WIDTH = 319;
+constexpr lv_opa_t SPEED_GAUGE_LIVE_OPACITY = 156;
+constexpr lv_opa_t SPEED_GAUGE_STALE_OPACITY = 88;
+constexpr lv_opa_t SPEED_GAUGE_OFF_OPACITY = 22;
+constexpr uint32_t SPEED_GAUGE_COLOR_HEX = 0x2ea8ff;
+constexpr uint32_t SPEED_GAUGE_OVER_COLOR_HEX = 0xffaa4a;
 
 uint32_t segmentOffColorFor(uint32_t onColorHex) {
   return (onColorHex == STALE_TEXT_COLOR) ? SEGMENT_OFF_COLOR_STALE : SEGMENT_OFF_COLOR_LIVE;
@@ -162,6 +173,10 @@ void UiManager::begin() {
   createTitle(cellCan_, "CAN");
   createTitle(cellDistance_, "Distance");
   labelTimeTitle_ = createTitle(cellTime_, "Time");
+
+  createSpeedGauge(cellExt_, extGaugeSegments_, 10, 6, SPEED_GAUGE_WIDTH);
+  createSpeedGauge(cellGps_, gpsGaugeSegments_, 10, 6, SPEED_GAUGE_WIDTH);
+  createSpeedGauge(cellCan_, canGaugeSegments_, 10, 6, SPEED_GAUGE_WIDTH);
 
   labelExtValue_ = createSegmentDisplay(cellExt_, 18, 92, 286, 110);
 
@@ -355,6 +370,7 @@ void UiManager::update(const UiSnapshot &snapshot) {
   updateSpeedDisplay(
       labelExtValue_,
       labelExtUnit_,
+      extGaugeSegments_,
       snapshot.extSpeedKmh,
       snapshot.extValid,
       extUnit_,
@@ -363,6 +379,7 @@ void UiManager::update(const UiSnapshot &snapshot) {
   updateSpeedDisplay(
       labelGpsValue_,
       labelGpsUnit_,
+      gpsGaugeSegments_,
       snapshot.gpsSpeedKmh,
       snapshot.gpsValid,
       gpsUnit_,
@@ -371,6 +388,7 @@ void UiManager::update(const UiSnapshot &snapshot) {
   updateSpeedDisplay(
       labelCanValue_,
       labelCanUnit_,
+      canGaugeSegments_,
       snapshot.canSpeedKmh,
       snapshot.canValid,
       canUnit_,
@@ -586,6 +604,37 @@ lv_obj_t *UiManager::createSegmentDisplay(
   return display;
 }
 
+void UiManager::createSpeedGauge(
+    lv_obj_t *parent,
+    lv_obj_t **segments,
+    lv_coord_t x,
+    lv_coord_t y,
+    lv_coord_t w) {
+  if ((parent == nullptr) || (segments == nullptr)) {
+    return;
+  }
+
+  const lv_color_t gaugeColor = lv_color_hex(SPEED_GAUGE_COLOR_HEX);
+  for (uint8_t index = 0; index < UiManager::kSpeedGaugeSegmentCount; ++index) {
+    lv_obj_t *segment = lv_obj_create(parent);
+    segments[index] = segment;
+
+    const lv_coord_t segmentY =
+        y + static_cast<lv_coord_t>((UiManager::kSpeedGaugeSegmentCount - 1 - index) *
+                                    (SPEED_GAUGE_SEGMENT_HEIGHT + SPEED_GAUGE_SEGMENT_GAP));
+    lv_obj_set_pos(segment, x, segmentY);
+    lv_obj_set_size(segment, w, SPEED_GAUGE_SEGMENT_HEIGHT);
+    lv_obj_set_style_bg_color(segment, gaugeColor, 0);
+    lv_obj_set_style_bg_opa(segment, SPEED_GAUGE_OFF_OPACITY, 0);
+    lv_obj_set_style_border_width(segment, 0, 0);
+    lv_obj_set_style_radius(segment, 6, 0);
+    lv_obj_set_style_shadow_width(segment, 0, 0);
+    lv_obj_clear_flag(segment, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(segment, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_move_background(segment);
+  }
+}
+
 void UiManager::onSpeedSegmentDraw(lv_event_t *e) {
   if (instance_ != nullptr) {
     instance_->drawSpeedSegmentDisplay(e);
@@ -686,6 +735,7 @@ bool UiManager::tryFormatAnchoredLocal(char *timeBuf, size_t timeBufSize) const 
 void UiManager::updateSpeedDisplay(
     lv_obj_t *valueLabel,
     lv_obj_t *unitLabel,
+    lv_obj_t **gaugeSegments,
     float incomingSpeedKmh,
     bool valid,
     DisplayUnit unit,
@@ -713,11 +763,70 @@ void UiManager::updateSpeedDisplay(
       valueLabel,
       valueBuf,
       staleDisplay ? STALE_TEXT_COLOR : LIVE_TEXT_COLOR);
+  updateSpeedGauge(gaugeSegments, displaySpeedKmh, valid, staleDisplay);
   lv_label_set_text(unitLabel, unit == DISPLAY_UNIT_KMH ? "km/h" : "mph");
 
   const lv_color_t textColor =
       lv_color_hex(staleDisplay ? STALE_TEXT_COLOR : LIVE_TEXT_COLOR);
   lv_obj_set_style_text_color(unitLabel, textColor, 0);
+}
+
+void UiManager::updateSpeedGauge(
+    lv_obj_t **segments,
+    float displaySpeedKmh,
+    bool active,
+    bool stale) {
+  if (segments == nullptr) {
+    return;
+  }
+
+  uint8_t blueCount = 0;
+  uint8_t orangeCount = 0;
+  if (active && (displaySpeedKmh > 0.0f)) {
+    const float clampedSpeed =
+        (displaySpeedKmh > SPEED_GAUGE_MAX_KMH) ? SPEED_GAUGE_MAX_KMH : displaySpeedKmh;
+
+    const float baseBlueSpeed =
+        (clampedSpeed > SPEED_GAUGE_BLUE_RANGE_KMH) ? SPEED_GAUGE_BLUE_RANGE_KMH : clampedSpeed;
+    blueCount = static_cast<uint8_t>(baseBlueSpeed / SPEED_GAUGE_STEP_KMH);
+    if (blueCount > UiManager::kSpeedGaugeSegmentCount) {
+      blueCount = UiManager::kSpeedGaugeSegmentCount;
+    }
+
+    if (clampedSpeed > SPEED_GAUGE_BLUE_RANGE_KMH) {
+      orangeCount = static_cast<uint8_t>(
+          (clampedSpeed - SPEED_GAUGE_BLUE_RANGE_KMH) / SPEED_GAUGE_STEP_KMH);
+      if (orangeCount > UiManager::kSpeedGaugeSegmentCount) {
+        orangeCount = UiManager::kSpeedGaugeSegmentCount;
+      }
+    }
+  }
+
+  const lv_opa_t onOpacity = stale ? SPEED_GAUGE_STALE_OPACITY : SPEED_GAUGE_LIVE_OPACITY;
+  const lv_color_t blueColor = lv_color_hex(SPEED_GAUGE_COLOR_HEX);
+  const lv_color_t orangeColor = lv_color_hex(SPEED_GAUGE_OVER_COLOR_HEX);
+  for (uint8_t index = 0; index < UiManager::kSpeedGaugeSegmentCount; ++index) {
+    if (segments[index] == nullptr) {
+      continue;
+    }
+
+    lv_color_t color = blueColor;
+    lv_opa_t opacity = SPEED_GAUGE_OFF_OPACITY;
+
+    if (index < orangeCount) {
+      color = orangeColor;
+      opacity = onOpacity;
+    } else if (index < blueCount) {
+      color = blueColor;
+      opacity = onOpacity;
+    }
+
+    lv_obj_set_style_bg_color(segments[index], color, 0);
+    lv_obj_set_style_bg_opa(
+        segments[index],
+        opacity,
+        0);
+  }
 }
 
 void UiManager::formatSpeed(
@@ -880,8 +989,15 @@ void UiManager::drawSpeedSegmentDisplay(lv_event_t *e) const {
 
   static constexpr lv_coord_t kSlotGap = 6;
   static constexpr lv_coord_t kSegThickness = 8;
-  static constexpr lv_coord_t kSegMargin = 5;
+  static constexpr lv_coord_t kVerticalInset = 9;
+  static constexpr lv_coord_t kHorizontalBarInset = 2;
+  static constexpr lv_coord_t kSideInset = 1;
   static constexpr lv_coord_t kMidGap = 4;
+  static constexpr lv_coord_t kTopBarLift = 4;
+  static constexpr lv_coord_t kTopClusterDrop = 2;
+  static constexpr lv_coord_t kBarChamfer = 6;
+  static constexpr lv_coord_t kVerticalChamfer = 6;
+  static constexpr lv_coord_t kBottomBarLift = 6;
   static constexpr uint8_t kSegTop = 0x01;
   static constexpr uint8_t kSegTopLeft = 0x02;
   static constexpr uint8_t kSegTopRight = 0x04;
@@ -913,7 +1029,7 @@ void UiManager::drawSpeedSegmentDisplay(lv_event_t *e) const {
   const lv_coord_t height = lv_area_get_height(&coords);
   const lv_coord_t slotWidth = (width - (kSlotGap * (SPEED_SEGMENT_SLOT_COUNT - 1))) / SPEED_SEGMENT_SLOT_COUNT;
   const lv_coord_t slotHeight = height;
-  const lv_coord_t verticalLen = (slotHeight - (2 * kSegMargin) - (3 * kSegThickness) - kMidGap) / 2;
+  const lv_coord_t verticalLen = (slotHeight - (2 * kVerticalInset) - (3 * kSegThickness) - kMidGap) / 2;
 
   char slots[SPEED_SEGMENT_SLOT_COUNT];
   memset(slots, ' ', sizeof(slots));
@@ -925,12 +1041,39 @@ void UiManager::drawSpeedSegmentDisplay(lv_event_t *e) const {
 
   lv_draw_rect_dsc_t rectDsc;
   lv_draw_rect_dsc_init(&rectDsc);
-  rectDsc.radius = 3;
+  rectDsc.radius = 0;
   rectDsc.bg_opa = LV_OPA_COVER;
   rectDsc.border_width = 0;
 
   const lv_color_t onColor = lv_color_hex(state->onColorHex);
   const lv_color_t offColor = lv_color_hex(segmentOffColorFor(state->onColorHex));
+
+  auto drawHorizontalSegment = [&](const lv_area_t &area, bool on) {
+    rectDsc.bg_color = on ? onColor : offColor;
+    lv_point_t points[6] = {
+        {static_cast<lv_coord_t>(area.x1 + kBarChamfer), area.y1},
+        {static_cast<lv_coord_t>(area.x2 - kBarChamfer), area.y1},
+        {area.x2, static_cast<lv_coord_t>((area.y1 + area.y2) / 2)},
+        {static_cast<lv_coord_t>(area.x2 - kBarChamfer), area.y2},
+        {static_cast<lv_coord_t>(area.x1 + kBarChamfer), area.y2},
+        {area.x1, static_cast<lv_coord_t>((area.y1 + area.y2) / 2)},
+    };
+    lv_draw_polygon(drawCtx, &rectDsc, points, 6);
+  };
+
+  auto drawVerticalSegment = [&](const lv_area_t &area, bool on) {
+    rectDsc.bg_color = on ? onColor : offColor;
+    const lv_coord_t centerX = static_cast<lv_coord_t>((area.x1 + area.x2) / 2);
+    lv_point_t points[6] = {
+        {centerX, area.y1},
+        {area.x2, static_cast<lv_coord_t>(area.y1 + kVerticalChamfer)},
+        {area.x2, static_cast<lv_coord_t>(area.y2 - kVerticalChamfer)},
+        {centerX, area.y2},
+        {area.x1, static_cast<lv_coord_t>(area.y2 - kVerticalChamfer)},
+        {area.x1, static_cast<lv_coord_t>(area.y1 + kVerticalChamfer)},
+    };
+    lv_draw_polygon(drawCtx, &rectDsc, points, 6);
+  };
 
   for (uint8_t slot = 0; slot < SPEED_SEGMENT_SLOT_COUNT; ++slot) {
     const char c = slots[slot];
@@ -951,29 +1094,29 @@ void UiManager::drawSpeedSegmentDisplay(lv_event_t *e) const {
     const uint8_t mask = segmentMaskFor(c);
 
     lv_area_t topArea{
-        static_cast<lv_coord_t>(baseX + kSegMargin + kSegThickness / 2),
-        static_cast<lv_coord_t>(baseY + kSegMargin),
-        static_cast<lv_coord_t>(baseX + slotWidth - kSegMargin - kSegThickness / 2),
-        static_cast<lv_coord_t>(baseY + kSegMargin + kSegThickness)};
+        static_cast<lv_coord_t>(baseX + kHorizontalBarInset + kSegThickness / 2),
+        static_cast<lv_coord_t>(baseY + kVerticalInset - kTopBarLift + kTopClusterDrop),
+        static_cast<lv_coord_t>(baseX + slotWidth - kHorizontalBarInset - kSegThickness / 2),
+        static_cast<lv_coord_t>(baseY + kVerticalInset - kTopBarLift + kTopClusterDrop + kSegThickness)};
     lv_area_t midArea{
         topArea.x1,
-        static_cast<lv_coord_t>(baseY + kSegMargin + verticalLen + kSegThickness + kMidGap / 2),
+        static_cast<lv_coord_t>(baseY + kVerticalInset + verticalLen + kSegThickness + kMidGap / 2),
         topArea.x2,
-        static_cast<lv_coord_t>(baseY + kSegMargin + verticalLen + (2 * kSegThickness) + kMidGap / 2)};
+        static_cast<lv_coord_t>(baseY + kVerticalInset + verticalLen + (2 * kSegThickness) + kMidGap / 2)};
     lv_area_t bottomArea{
         topArea.x1,
-        static_cast<lv_coord_t>(baseY + slotHeight - kSegMargin - kSegThickness),
+        static_cast<lv_coord_t>(baseY + slotHeight - kVerticalInset - kSegThickness - kBottomBarLift),
         topArea.x2,
-        static_cast<lv_coord_t>(baseY + slotHeight - kSegMargin)};
+        static_cast<lv_coord_t>(baseY + slotHeight - kVerticalInset - kBottomBarLift)};
     lv_area_t topLeftArea{
-        static_cast<lv_coord_t>(baseX + kSegMargin),
-        static_cast<lv_coord_t>(baseY + kSegMargin + kSegThickness / 2),
-        static_cast<lv_coord_t>(baseX + kSegMargin + kSegThickness),
-        static_cast<lv_coord_t>(baseY + kSegMargin + kSegThickness / 2 + verticalLen)};
+        static_cast<lv_coord_t>(baseX + kSideInset),
+        static_cast<lv_coord_t>(baseY + kVerticalInset + kSegThickness / 2 + kTopClusterDrop),
+        static_cast<lv_coord_t>(baseX + kSideInset + kSegThickness),
+        static_cast<lv_coord_t>(baseY + kVerticalInset + kSegThickness / 2 + kTopClusterDrop + verticalLen)};
     lv_area_t topRightArea{
-        static_cast<lv_coord_t>(baseX + slotWidth - kSegMargin - kSegThickness),
+        static_cast<lv_coord_t>(baseX + slotWidth - kSideInset - kSegThickness),
         topLeftArea.y1,
-        static_cast<lv_coord_t>(baseX + slotWidth - kSegMargin),
+        static_cast<lv_coord_t>(baseX + slotWidth - kSideInset),
         topLeftArea.y2};
     lv_area_t bottomLeftArea{
         topLeftArea.x1,
@@ -986,23 +1129,19 @@ void UiManager::drawSpeedSegmentDisplay(lv_event_t *e) const {
         topRightArea.x2,
         bottomLeftArea.y2};
 
-    const struct {
-      uint8_t bit;
-      lv_area_t area;
-    } segAreas[] = {
-        {kSegTop, topArea},
-        {kSegTopLeft, topLeftArea},
-        {kSegTopRight, topRightArea},
-        {kSegMid, midArea},
-        {kSegBottomLeft, bottomLeftArea},
-        {kSegBottomRight, bottomRightArea},
-        {kSegBottom, bottomArea},
-    };
+    drawHorizontalSegment(topArea, (mask & kSegTop) != 0U);
 
-    for (const auto &seg : segAreas) {
-      rectDsc.bg_color = ((mask & seg.bit) != 0U) ? onColor : offColor;
-      lv_draw_rect(drawCtx, &rectDsc, &seg.area);
-    }
+    drawVerticalSegment(topLeftArea, (mask & kSegTopLeft) != 0U);
+
+    drawVerticalSegment(topRightArea, (mask & kSegTopRight) != 0U);
+
+    drawHorizontalSegment(midArea, (mask & kSegMid) != 0U);
+
+    drawVerticalSegment(bottomLeftArea, (mask & kSegBottomLeft) != 0U);
+
+    drawVerticalSegment(bottomRightArea, (mask & kSegBottomRight) != 0U);
+
+    drawHorizontalSegment(bottomArea, (mask & kSegBottom) != 0U);
   }
 }
 
