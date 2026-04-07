@@ -14,6 +14,13 @@ constexpr lv_coord_t TIME_CHAR_HEIGHT = 92;
 constexpr uint32_t LIVE_TEXT_COLOR = 0xFFFFFF;
 constexpr uint32_t STALE_TEXT_COLOR = 0x5A5A5A;
 constexpr uint32_t SATS_LIVE_COLOR = 0xD8F7FF;
+constexpr uint8_t SPEED_SEGMENT_SLOT_COUNT = 5;
+constexpr uint32_t SEGMENT_OFF_COLOR_LIVE = 0x151515;
+constexpr uint32_t SEGMENT_OFF_COLOR_STALE = 0x0E0E0E;
+
+uint32_t segmentOffColorFor(uint32_t onColorHex) {
+  return (onColorHex == STALE_TEXT_COLOR) ? SEGMENT_OFF_COLOR_STALE : SEGMENT_OFF_COLOR_LIVE;
+}
 
 uint32_t applyLocalUtcOffset(uint32_t secondsOfDay, int32_t offsetMinutes) {
   int32_t shiftedSeconds =
@@ -156,41 +163,29 @@ void UiManager::begin() {
   createTitle(cellDistance_, "Distance");
   labelTimeTitle_ = createTitle(cellTime_, "Time");
 
-  labelExtValue_ = lv_label_create(cellExt_);
-  lv_label_set_text(labelExtValue_, "--.-");
-  lv_obj_set_style_text_color(labelExtValue_, lv_color_white(), 0);
-  lv_obj_set_style_text_font(labelExtValue_, FONT_NUMBER, 0);
-  lv_obj_set_pos(labelExtValue_, 18, 96);
+  labelExtValue_ = createSegmentDisplay(cellExt_, 18, 92, 286, 110);
 
   labelExtUnit_ = lv_label_create(cellExt_);
   lv_label_set_text(labelExtUnit_, "km/h");
   lv_obj_set_style_text_color(labelExtUnit_, lv_color_white(), 0);
   lv_obj_set_style_text_font(labelExtUnit_, FONT_UNIT, 0);
-  lv_obj_set_pos(labelExtUnit_, 200, 186);
+  lv_obj_set_pos(labelExtUnit_, 214, 204);
 
-  labelGpsValue_ = lv_label_create(cellGps_);
-  lv_label_set_text(labelGpsValue_, "--.-");
-  lv_obj_set_style_text_color(labelGpsValue_, lv_color_white(), 0);
-  lv_obj_set_style_text_font(labelGpsValue_, FONT_NUMBER, 0);
-  lv_obj_set_pos(labelGpsValue_, 24, 96);
+  labelGpsValue_ = createSegmentDisplay(cellGps_, 22, 92, 286, 110);
 
   labelGpsUnit_ = lv_label_create(cellGps_);
   lv_label_set_text(labelGpsUnit_, "km/h");
   lv_obj_set_style_text_color(labelGpsUnit_, lv_color_white(), 0);
   lv_obj_set_style_text_font(labelGpsUnit_, FONT_UNIT, 0);
-  lv_obj_set_pos(labelGpsUnit_, 206, 186);
+  lv_obj_set_pos(labelGpsUnit_, 214, 204);
 
-  labelCanValue_ = lv_label_create(cellCan_);
-  lv_label_set_text(labelCanValue_, "--.-");
-  lv_obj_set_style_text_color(labelCanValue_, lv_color_white(), 0);
-  lv_obj_set_style_text_font(labelCanValue_, FONT_NUMBER, 0);
-  lv_obj_set_pos(labelCanValue_, 24, 96);
+  labelCanValue_ = createSegmentDisplay(cellCan_, 22, 92, 286, 110);
 
   labelCanUnit_ = lv_label_create(cellCan_);
   lv_label_set_text(labelCanUnit_, "km/h");
   lv_obj_set_style_text_color(labelCanUnit_, lv_color_white(), 0);
   lv_obj_set_style_text_font(labelCanUnit_, FONT_UNIT, 0);
-  lv_obj_set_pos(labelCanUnit_, 206, 186);
+  lv_obj_set_pos(labelCanUnit_, 214, 204);
 
   labelDistanceValue_ = lv_label_create(cellDistance_);
   lv_label_set_text(labelDistanceValue_, "0.0");
@@ -572,6 +567,31 @@ lv_obj_t *UiManager::createTitle(lv_obj_t *parent, const char *text) {
   return label;
 }
 
+lv_obj_t *UiManager::createSegmentDisplay(
+    lv_obj_t *parent,
+    lv_coord_t x,
+    lv_coord_t y,
+    lv_coord_t w,
+    lv_coord_t h) {
+  lv_obj_t *display = lv_obj_create(parent);
+  lv_obj_set_size(display, w, h);
+  lv_obj_set_pos(display, x, y);
+  lv_obj_set_style_bg_opa(display, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(display, 0, 0);
+  lv_obj_set_style_radius(display, 0, 0);
+  lv_obj_set_style_pad_all(display, 0, 0);
+  lv_obj_clear_flag(display, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(display, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(display, onSpeedSegmentDraw, LV_EVENT_DRAW_MAIN, nullptr);
+  return display;
+}
+
+void UiManager::onSpeedSegmentDraw(lv_event_t *e) {
+  if (instance_ != nullptr) {
+    instance_->drawSpeedSegmentDisplay(e);
+  }
+}
+
 void UiManager::queueAction(uint8_t action) {
   pendingActions_ |= action;
 }
@@ -689,12 +709,14 @@ void UiManager::updateSpeedDisplay(
 
   char valueBuf[32];
   formatSpeed(valueBuf, sizeof(valueBuf), displaySpeedKmh, valid, unit);
-  lv_label_set_text(valueLabel, valueBuf);
+  setSegmentDisplayState(
+      valueLabel,
+      valueBuf,
+      staleDisplay ? STALE_TEXT_COLOR : LIVE_TEXT_COLOR);
   lv_label_set_text(unitLabel, unit == DISPLAY_UNIT_KMH ? "km/h" : "mph");
 
   const lv_color_t textColor =
       lv_color_hex(staleDisplay ? STALE_TEXT_COLOR : LIVE_TEXT_COLOR);
-  lv_obj_set_style_text_color(valueLabel, textColor, 0);
   lv_obj_set_style_text_color(unitLabel, textColor, 0);
 }
 
@@ -799,6 +821,187 @@ void UiManager::renderTimeText(const char *timeText) {
       lv_label_set_text(labelTimeChars_[i], charBuf);
     } else {
       lv_label_set_text(labelTimeChars_[i], "");
+    }
+  }
+}
+
+void UiManager::setSegmentDisplayState(lv_obj_t *display, const char *text, uint32_t onColorHex) {
+  if (display == nullptr || text == nullptr) {
+    return;
+  }
+
+  SegmentDisplayState *state = nullptr;
+  if (display == labelExtValue_) {
+    state = &extSpeedDisplayState_;
+  } else if (display == labelGpsValue_) {
+    state = &gpsSpeedDisplayState_;
+  } else if (display == labelCanValue_) {
+    state = &canSpeedDisplayState_;
+  }
+
+  if (state == nullptr) {
+    return;
+  }
+
+  bool changed = false;
+  if (strncmp(state->text, text, sizeof(state->text)) != 0) {
+    snprintf(state->text, sizeof(state->text), "%s", text);
+    changed = true;
+  }
+  if (state->onColorHex != onColorHex) {
+    state->onColorHex = onColorHex;
+    changed = true;
+  }
+
+  if (changed) {
+    lv_obj_invalidate(display);
+  }
+}
+
+void UiManager::drawSpeedSegmentDisplay(lv_event_t *e) const {
+  lv_obj_t *display = lv_event_get_target(e);
+  lv_draw_ctx_t *drawCtx = lv_event_get_draw_ctx(e);
+  if (display == nullptr || drawCtx == nullptr) {
+    return;
+  }
+
+  const SegmentDisplayState *state = nullptr;
+  if (display == labelExtValue_) {
+    state = &extSpeedDisplayState_;
+  } else if (display == labelGpsValue_) {
+    state = &gpsSpeedDisplayState_;
+  } else if (display == labelCanValue_) {
+    state = &canSpeedDisplayState_;
+  }
+
+  if (state == nullptr) {
+    return;
+  }
+
+  static constexpr lv_coord_t kSlotGap = 6;
+  static constexpr lv_coord_t kSegThickness = 8;
+  static constexpr lv_coord_t kSegMargin = 5;
+  static constexpr lv_coord_t kMidGap = 4;
+  static constexpr uint8_t kSegTop = 0x01;
+  static constexpr uint8_t kSegTopLeft = 0x02;
+  static constexpr uint8_t kSegTopRight = 0x04;
+  static constexpr uint8_t kSegMid = 0x08;
+  static constexpr uint8_t kSegBottomLeft = 0x10;
+  static constexpr uint8_t kSegBottomRight = 0x20;
+  static constexpr uint8_t kSegBottom = 0x40;
+
+  auto segmentMaskFor = [&](char c) -> uint8_t {
+    switch (c) {
+      case '0': return kSegTop | kSegTopLeft | kSegTopRight | kSegBottomLeft | kSegBottomRight | kSegBottom;
+      case '1': return kSegTopRight | kSegBottomRight;
+      case '2': return kSegTop | kSegTopRight | kSegMid | kSegBottomLeft | kSegBottom;
+      case '3': return kSegTop | kSegTopRight | kSegMid | kSegBottomRight | kSegBottom;
+      case '4': return kSegTopLeft | kSegTopRight | kSegMid | kSegBottomRight;
+      case '5': return kSegTop | kSegTopLeft | kSegMid | kSegBottomRight | kSegBottom;
+      case '6': return kSegTop | kSegTopLeft | kSegMid | kSegBottomLeft | kSegBottomRight | kSegBottom;
+      case '7': return kSegTop | kSegTopRight | kSegBottomRight;
+      case '8': return kSegTop | kSegTopLeft | kSegTopRight | kSegMid | kSegBottomLeft | kSegBottomRight | kSegBottom;
+      case '9': return kSegTop | kSegTopLeft | kSegTopRight | kSegMid | kSegBottomRight | kSegBottom;
+      case '-': return kSegMid;
+      default: return 0;
+    }
+  };
+
+  lv_area_t coords;
+  lv_obj_get_coords(display, &coords);
+  const lv_coord_t width = lv_area_get_width(&coords);
+  const lv_coord_t height = lv_area_get_height(&coords);
+  const lv_coord_t slotWidth = (width - (kSlotGap * (SPEED_SEGMENT_SLOT_COUNT - 1))) / SPEED_SEGMENT_SLOT_COUNT;
+  const lv_coord_t slotHeight = height;
+  const lv_coord_t verticalLen = (slotHeight - (2 * kSegMargin) - (3 * kSegThickness) - kMidGap) / 2;
+
+  char slots[SPEED_SEGMENT_SLOT_COUNT];
+  memset(slots, ' ', sizeof(slots));
+  const size_t textLen = strnlen(state->text, sizeof(state->text));
+  const size_t copyLen = (textLen > SPEED_SEGMENT_SLOT_COUNT) ? SPEED_SEGMENT_SLOT_COUNT : textLen;
+  for (size_t i = 0; i < copyLen; ++i) {
+    slots[SPEED_SEGMENT_SLOT_COUNT - copyLen + i] = state->text[i];
+  }
+
+  lv_draw_rect_dsc_t rectDsc;
+  lv_draw_rect_dsc_init(&rectDsc);
+  rectDsc.radius = 3;
+  rectDsc.bg_opa = LV_OPA_COVER;
+  rectDsc.border_width = 0;
+
+  const lv_color_t onColor = lv_color_hex(state->onColorHex);
+  const lv_color_t offColor = lv_color_hex(segmentOffColorFor(state->onColorHex));
+
+  for (uint8_t slot = 0; slot < SPEED_SEGMENT_SLOT_COUNT; ++slot) {
+    const char c = slots[slot];
+    const lv_coord_t baseX = coords.x1 + static_cast<lv_coord_t>(slot * (slotWidth + kSlotGap));
+    const lv_coord_t baseY = coords.y1;
+
+    if (c == '.') {
+      lv_area_t dotArea{
+          static_cast<lv_coord_t>(baseX + (slotWidth / 2) - 6),
+          static_cast<lv_coord_t>(baseY + slotHeight - 22),
+          static_cast<lv_coord_t>(baseX + (slotWidth / 2) + 6),
+          static_cast<lv_coord_t>(baseY + slotHeight - 10)};
+      rectDsc.bg_color = onColor;
+      lv_draw_rect(drawCtx, &rectDsc, &dotArea);
+      continue;
+    }
+
+    const uint8_t mask = segmentMaskFor(c);
+
+    lv_area_t topArea{
+        static_cast<lv_coord_t>(baseX + kSegMargin + kSegThickness / 2),
+        static_cast<lv_coord_t>(baseY + kSegMargin),
+        static_cast<lv_coord_t>(baseX + slotWidth - kSegMargin - kSegThickness / 2),
+        static_cast<lv_coord_t>(baseY + kSegMargin + kSegThickness)};
+    lv_area_t midArea{
+        topArea.x1,
+        static_cast<lv_coord_t>(baseY + kSegMargin + verticalLen + kSegThickness + kMidGap / 2),
+        topArea.x2,
+        static_cast<lv_coord_t>(baseY + kSegMargin + verticalLen + (2 * kSegThickness) + kMidGap / 2)};
+    lv_area_t bottomArea{
+        topArea.x1,
+        static_cast<lv_coord_t>(baseY + slotHeight - kSegMargin - kSegThickness),
+        topArea.x2,
+        static_cast<lv_coord_t>(baseY + slotHeight - kSegMargin)};
+    lv_area_t topLeftArea{
+        static_cast<lv_coord_t>(baseX + kSegMargin),
+        static_cast<lv_coord_t>(baseY + kSegMargin + kSegThickness / 2),
+        static_cast<lv_coord_t>(baseX + kSegMargin + kSegThickness),
+        static_cast<lv_coord_t>(baseY + kSegMargin + kSegThickness / 2 + verticalLen)};
+    lv_area_t topRightArea{
+        static_cast<lv_coord_t>(baseX + slotWidth - kSegMargin - kSegThickness),
+        topLeftArea.y1,
+        static_cast<lv_coord_t>(baseX + slotWidth - kSegMargin),
+        topLeftArea.y2};
+    lv_area_t bottomLeftArea{
+        topLeftArea.x1,
+        static_cast<lv_coord_t>(midArea.y2 - kSegThickness / 2),
+        topLeftArea.x2,
+        static_cast<lv_coord_t>(midArea.y2 - kSegThickness / 2 + verticalLen)};
+    lv_area_t bottomRightArea{
+        topRightArea.x1,
+        bottomLeftArea.y1,
+        topRightArea.x2,
+        bottomLeftArea.y2};
+
+    const struct {
+      uint8_t bit;
+      lv_area_t area;
+    } segAreas[] = {
+        {kSegTop, topArea},
+        {kSegTopLeft, topLeftArea},
+        {kSegTopRight, topRightArea},
+        {kSegMid, midArea},
+        {kSegBottomLeft, bottomLeftArea},
+        {kSegBottomRight, bottomRightArea},
+        {kSegBottom, bottomArea},
+    };
+
+    for (const auto &seg : segAreas) {
+      rectDsc.bg_color = ((mask & seg.bit) != 0U) ? onColor : offColor;
+      lv_draw_rect(drawCtx, &rectDsc, &seg.area);
     }
   }
 }

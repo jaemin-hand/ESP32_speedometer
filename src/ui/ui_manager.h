@@ -43,6 +43,13 @@ private:
       lv_coord_t h,
       lv_event_cb_t cb);
   static lv_obj_t *createTitle(lv_obj_t *parent, const char *text);
+  static lv_obj_t *createSegmentDisplay(
+      lv_obj_t *parent,
+      lv_coord_t x,
+      lv_coord_t y,
+      lv_coord_t w,
+      lv_coord_t h);
+  static void onSpeedSegmentDraw(lv_event_t *e);
 
   void queueAction(uint8_t action);
   void toggleDisplayUnit(DisplayUnit &unit);
@@ -52,6 +59,8 @@ private:
   void setCellHighlight(lv_obj_t *cell, bool active);
   void updateUtcAnchor(const char *utcText);
   bool tryFormatAnchoredLocal(char *timeBuf, size_t timeBufSize) const;
+  void setSegmentDisplayState(lv_obj_t *display, const char *text, uint32_t onColorHex);
+  void drawSpeedSegmentDisplay(lv_event_t *e) const;
   void updateSpeedDisplay(
       lv_obj_t *valueLabel,
       lv_obj_t *unitLabel,
@@ -104,6 +113,15 @@ private:
   lv_obj_t *labelUsingStatus_ = nullptr;
   lv_obj_t *labelGnssLink_ = nullptr;
   lv_obj_t *labelGnssCn0_ = nullptr;
+
+  struct SegmentDisplayState {
+    char text[8] = "--.-";
+    uint32_t onColorHex = 0xFFFFFF;
+  };
+
+  SegmentDisplayState extSpeedDisplayState_{};
+  SegmentDisplayState gpsSpeedDisplayState_{};
+  SegmentDisplayState canSpeedDisplayState_{};
 
   float lastExtSpeedKmh_ = 0.0f;
   float lastGpsSpeedKmh_ = 0.0f;
