@@ -964,6 +964,10 @@ void UiManager::setSegmentDisplayState(lv_obj_t *display, const char *text, uint
 
   if (changed) {
     lv_obj_invalidate(display);
+    lv_obj_t *parent = lv_obj_get_parent(display);
+    if (parent != nullptr) {
+      lv_obj_invalidate(parent);
+    }
   }
 }
 
@@ -1046,10 +1050,12 @@ void UiManager::drawSpeedSegmentDisplay(lv_event_t *e) const {
   rectDsc.border_width = 0;
 
   const lv_color_t onColor = lv_color_hex(state->onColorHex);
-  const lv_color_t offColor = lv_color_hex(segmentOffColorFor(state->onColorHex));
 
   auto drawHorizontalSegment = [&](const lv_area_t &area, bool on) {
-    rectDsc.bg_color = on ? onColor : offColor;
+    if (!on) {
+      return;
+    }
+    rectDsc.bg_color = onColor;
     lv_point_t points[6] = {
         {static_cast<lv_coord_t>(area.x1 + kBarChamfer), area.y1},
         {static_cast<lv_coord_t>(area.x2 - kBarChamfer), area.y1},
@@ -1062,7 +1068,10 @@ void UiManager::drawSpeedSegmentDisplay(lv_event_t *e) const {
   };
 
   auto drawVerticalSegment = [&](const lv_area_t &area, bool on) {
-    rectDsc.bg_color = on ? onColor : offColor;
+    if (!on) {
+      return;
+    }
+    rectDsc.bg_color = onColor;
     const lv_coord_t centerX = static_cast<lv_coord_t>((area.x1 + area.x2) / 2);
     lv_point_t points[6] = {
         {centerX, area.y1},
