@@ -86,7 +86,6 @@ bool CanManager::begin(
       .standbyPin = AppConfig::kCanFdStandbyPin,
   };
   if (!backend_->begin(options)) {
-    backend_ = nullptr;
     return false;
   }
 
@@ -229,6 +228,11 @@ void CanManager::printStatus(const char *prefix) const {
 
   if (!initialized_) {
     Serial.println("CAN backend not initialized");
+    return;
+  }
+
+  if (backendType_ == CAN_BACKEND_FD) {
+    Serial.printf("CAN-FD backend status: %s\n", getBackendDiagnosticText());
     return;
   }
 

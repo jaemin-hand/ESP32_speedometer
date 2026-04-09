@@ -574,7 +574,7 @@ void appSetup() {
           AppConfig::kActiveCanProfile)) {
     const CanBackendCapabilities caps = canManager.getBackendCapabilities();
     const CanBackendRequirements reqs = canManager.getBackendRequirements();
-    Serial.println("CAN(TWAI) initialized");
+    Serial.println("CAN backend initialized");
     Serial.printf(
         "CAN backend requested: %s\n",
         (AppConfig::kRequestedCanBackend == CAN_BACKEND_CLASSIC) ? "CLASSIC_CAN" : "CAN_FD");
@@ -596,7 +596,7 @@ void appSetup() {
     Serial.printf("CAN next step : %s\n", reqs.nextBringupStep);
     Serial.printf("CAN backend note: %s\n", canManager.getBackendDiagnosticText());
   } else {
-    Serial.println("CAN(TWAI) initialization failed");
+    Serial.println("CAN backend initialization failed");
     Serial.printf("CAN backend note: %s\n", canManager.getBackendDiagnosticText());
   }
 

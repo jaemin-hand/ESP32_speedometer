@@ -5,11 +5,9 @@
 
 namespace AppConfig {
 
-// Keep the currently working SantaFe classic CAN path as the default baseline.
-// When we start real CAN-FD bring-up, switching profile/backend should only
-// require changing these values instead of touching app_main wiring.
-constexpr CanBackendType kRequestedCanBackend = CAN_BACKEND_CLASSIC;
-constexpr CanProfileId kActiveCanProfile = CAN_PROFILE_SANTAFE_CLASSIC;
+// Current bring-up priority is CAN-FD through the external MCP2517FD board.
+constexpr CanBackendType kRequestedCanBackend = CAN_BACKEND_FD;
+constexpr CanProfileId kActiveCanProfile = CAN_PROFILE_TUCSON_FD_CANDIDATES;
 
 // Local clock display offset from UTC in minutes.
 constexpr int32_t kLocalUtcOffsetMinutes = 9 * 60;
@@ -70,11 +68,10 @@ struct PulseInputConfig {
   float speedFilterAlpha = 0.25f;
 };
 
-// Pulse input 1st-stage bring-up.
-// This is treated as the EXT speed source and can be reassigned later if the
-// final hardware uses a different input pin.
+// Pulse input is disabled for now because GPIO46 is reused as MCP2517FD CS
+// during CAN-FD bring-up.
 constexpr PulseInputConfig kPulseInputConfig = {
-    .inputPin = GPIO_NUM_46,
+    .inputPin = GPIO_NUM_NC,
     .usePullup = true,
     .calibration =
         {
