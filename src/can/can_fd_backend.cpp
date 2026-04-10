@@ -16,21 +16,21 @@ constexpr uint32_t kProbeIntervalMs = 1000;
 // Register map (MCP2517FD / MCP2518FD family)
 constexpr uint16_t kRegOsc = 0x0E00;
 constexpr uint16_t kRegIocon = 0x0E04;
-constexpr uint16_t kRegC1Con = 0x0100;
-constexpr uint16_t kRegC1NbtCfg = 0x0104;
-constexpr uint16_t kRegC1DbtCfg = 0x0108;
-constexpr uint16_t kRegC1Tdc = 0x010C;
-constexpr uint16_t kRegC1Int = 0x011C;
-constexpr uint16_t kRegC1RxIf = 0x0120;
-constexpr uint16_t kRegC1TefCon = 0x0140;
-constexpr uint16_t kRegC1FifoBa = 0x014C;
-constexpr uint16_t kRegC1TxqCon = 0x0150;
-constexpr uint16_t kRegC1FifoCon1 = 0x015C;
-constexpr uint16_t kRegC1FifoSta1 = 0x0160;
-constexpr uint16_t kRegC1FifoUa1 = 0x0164;
-constexpr uint16_t kRegC1FltCon0 = 0x0180;
-constexpr uint16_t kRegC1FltObj0 = 0x018C;
-constexpr uint16_t kRegC1Mask0 = 0x0190;
+constexpr uint16_t kRegC1Con = 0x000;
+constexpr uint16_t kRegC1NbtCfg = 0x004;
+constexpr uint16_t kRegC1DbtCfg = 0x008;
+constexpr uint16_t kRegC1Tdc = 0x00C;
+constexpr uint16_t kRegC1Int = 0x01C;
+constexpr uint16_t kRegC1RxIf = 0x020;
+constexpr uint16_t kRegC1TefCon = 0x040;
+constexpr uint16_t kRegC1FifoBa = 0x04C;
+constexpr uint16_t kRegC1TxqCon = 0x050;
+constexpr uint16_t kRegC1FifoCon1 = 0x05C;
+constexpr uint16_t kRegC1FifoSta1 = 0x060;
+constexpr uint16_t kRegC1FifoUa1 = 0x064;
+constexpr uint16_t kRegC1FltCon0 = 0x1D0;
+constexpr uint16_t kRegC1FltObj0 = 0x1F0;
+constexpr uint16_t kRegC1Mask0 = 0x1F4;
 
 constexpr uint32_t kC1ConReqopMask = 0x07000000UL;
 constexpr uint32_t kC1ConOpmodMask = 0x00E00000UL;
@@ -411,6 +411,11 @@ void CanFdBackend::refreshLinkDiagnostics(uint32_t nowMs) {
 bool CanFdBackend::setOperationMode(uint8_t reqop, uint32_t timeoutMs) {
   uint32_t c1con = 0;
   if (!spiReadRegister32(kRegC1Con, &c1con, kSpiMode0)) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD mode set failed: cannot read C1CON before reqop=%u",
+        static_cast<unsigned>(reqop));
     return false;
   }
 
@@ -418,6 +423,12 @@ bool CanFdBackend::setOperationMode(uint8_t reqop, uint32_t timeoutMs) {
   c1con |= static_cast<uint32_t>(reqop & 0x07U) << 24U;
   c1con |= kC1ConOnMask;
   if (!spiWriteRegister32(kRegC1Con, c1con, kSpiMode0)) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD mode set failed: cannot write C1CON reqop=%u value=0x%08lX",
+        static_cast<unsigned>(reqop),
+        static_cast<unsigned long>(c1con));
     return false;
   }
 
@@ -425,6 +436,11 @@ bool CanFdBackend::setOperationMode(uint8_t reqop, uint32_t timeoutMs) {
   while (millis() <= deadline) {
     uint32_t statusCon = 0;
     if (!spiReadRegister32(kRegC1Con, &statusCon, kSpiMode0)) {
+      snprintf(
+          diagnosticTextBuf_,
+          sizeof(diagnosticTextBuf_),
+          "CAN-FD mode set failed: cannot read C1CON while waiting reqop=%u",
+          static_cast<unsigned>(reqop));
       return false;
     }
     const uint8_t opmod = static_cast<uint8_t>((statusCon & kC1ConOpmodMask) >> 21U);
@@ -434,32 +450,58 @@ bool CanFdBackend::setOperationMode(uint8_t reqop, uint32_t timeoutMs) {
     delay(1);
   }
 
+  uint32_t finalCon = 0;
+  spiReadRegister32(kRegC1Con, &finalCon, kSpiMode0);
+  snprintf(
+      diagnosticTextBuf_,
+      sizeof(diagnosticTextBuf_),
+      "CAN-FD mode timeout: reqop=%u C1CON=0x%08lX",
+      static_cast<unsigned>(reqop),
+      static_cast<unsigned long>(finalCon));
   return false;
 }
 
 bool CanFdBackend::initializeControllerForListenOnly() {
   if (!spiResetDevice()) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD init failed: reset command failed");
     return false;
   }
   delay(10);
 
   if (!setOperationMode(kReqopConfig, 50)) {
+    Serial.println(diagnosticTextBuf_);
     return false;
   }
 
   uint32_t c1con = 0;
   if (!spiReadRegister32(kRegC1Con, &c1con, kSpiMode0)) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD init failed: cannot read C1CON in config mode");
     return false;
   }
   c1con |= kC1ConOnMask;
   c1con &= ~(kC1ConTxqEnMask | kC1ConStefMask | kC1ConBrsDisMask);
   if (!spiWriteRegister32(kRegC1Con, c1con, kSpiMode0)) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD init failed: cannot write C1CON config value=0x%08lX",
+        static_cast<unsigned long>(c1con));
     return false;
   }
 
   if (!spiWriteRegister32(kRegC1NbtCfg, kNominalBitTiming, kSpiMode0) ||
       !spiWriteRegister32(kRegC1DbtCfg, kDataBitTiming, kSpiMode0) ||
       !spiWriteRegister32(kRegC1Tdc, kTdcConfig, kSpiMode0)) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD init failed: bit timing write failed");
     return false;
   }
 
@@ -468,6 +510,10 @@ bool CanFdBackend::initializeControllerForListenOnly() {
       !spiWriteRegister32(kRegC1TefCon, 0x00000000UL, kSpiMode0) ||
       !spiWriteRegister32(kRegC1TxqCon, 0x00000000UL, kSpiMode0) ||
       !spiWriteRegister32(kRegC1FifoBa, kMessageRamBase, kSpiMode0)) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD init failed: baseline register write failed");
     return false;
   }
 
@@ -476,12 +522,20 @@ bool CanFdBackend::initializeControllerForListenOnly() {
       (0U << kFifoConFsizeShift) |
       kFifoConFresetMask;
   if (!spiWriteRegister32(kRegC1FifoCon1, fifoCon1, kSpiMode0)) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD init failed: FIFO1 config write failed");
     return false;
   }
 
   for (uint8_t retry = 0; retry < 10U; ++retry) {
     uint32_t fifoConStatus = 0;
     if (!spiReadRegister32(kRegC1FifoCon1, &fifoConStatus, kSpiMode0)) {
+      snprintf(
+          diagnosticTextBuf_,
+          sizeof(diagnosticTextBuf_),
+          "CAN-FD init failed: FIFO1 config readback failed");
       return false;
     }
     if ((fifoConStatus & kFifoConFresetMask) == 0U) {
@@ -493,10 +547,15 @@ bool CanFdBackend::initializeControllerForListenOnly() {
   if (!spiWriteRegister32(kRegC1FltObj0, 0x00000000UL, kSpiMode0) ||
       !spiWriteRegister32(kRegC1Mask0, 0x00000000UL, kSpiMode0) ||
       !spiWriteRegister32(kRegC1FltCon0, 0x00000081UL, kSpiMode0)) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD init failed: filter config write failed");
     return false;
   }
 
   if (!setOperationMode(kReqopNormal, 100)) {
+    Serial.println(diagnosticTextBuf_);
     return false;
   }
 
