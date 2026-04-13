@@ -12,6 +12,7 @@
         "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.7\\qio_qspi\\include",
         "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.7\\include\\**",
         "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
+        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src",
         "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32p4",
         "C:\\Users\\thswo\\Documents\\Arduino\\libraries\\lvgl\\src"
       ],

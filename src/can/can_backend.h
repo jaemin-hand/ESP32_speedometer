@@ -21,6 +21,9 @@ struct CanBackendOptions {
   gpio_num_t irqPin = GPIO_NUM_NC;
   gpio_num_t resetPin = GPIO_NUM_NC;
   gpio_num_t standbyPin = GPIO_NUM_NC;
+  uint32_t canClockHz = 40000000UL;
+  uint32_t nominalBitRate = 500000UL;
+  uint32_t dataBitRate = 2000000UL;
 };
 
 struct CanBackendCapabilities {

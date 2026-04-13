@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <SPI.h>
+#include "driver/gpio.h"
 
 namespace {
 
@@ -37,13 +38,9 @@ constexpr uint32_t kC1ConOpmodMask = 0x00E00000UL;
 constexpr uint32_t kC1ConTxqEnMask = 0x00100000UL;
 constexpr uint32_t kC1ConStefMask = 0x00080000UL;
 constexpr uint32_t kC1ConBrsDisMask = 0x00001000UL;
-constexpr uint32_t kC1ConOnMask = 0x00008000UL;
 
 constexpr uint8_t kReqopNormal = 0x0;
-constexpr uint8_t kReqopListenOnly = 0x3;
 constexpr uint8_t kReqopConfig = 0x4;
-
-constexpr uint32_t kFifoConTxEnableMask = 0x00000080UL;
 constexpr uint32_t kFifoConUincMask = 0x00000100UL;
 constexpr uint32_t kFifoConFresetMask = 0x00000400UL;
 constexpr uint32_t kFifoConFsizeShift = 24U;
@@ -55,11 +52,83 @@ constexpr uint32_t kFifoStaNotEmptyMask = 0x00000001UL;
 constexpr uint32_t kTdcModeAuto = 0x2U;
 constexpr uint32_t kMessageRamBase = 0x00000400UL;
 constexpr uint8_t kRxHeaderBytes = 8;
+constexpr uint32_t kCanClock40MHz = 40000000UL;
+constexpr uint32_t kCanClock20MHz = 20000000UL;
+constexpr uint32_t kNominal500K = 500000UL;
+constexpr uint32_t kData2M = 2000000UL;
 
-// 40 MHz oscillator, nominal 500 kbps, data 2 Mbps.
-constexpr uint32_t kNominalBitTiming = 0x003F0F0FUL;
-constexpr uint32_t kDataBitTiming = 0x000E0303UL;
-constexpr uint32_t kTdcConfig = (kTdcModeAuto << 16U) | (15U << 8U);
+struct CanFdTimingRegisters {
+  uint32_t nominalBitTiming = 0;
+  uint32_t dataBitTiming = 0;
+  uint32_t tdcConfig = 0;
+  const char *label = "unsupported";
+};
+
+constexpr uint32_t makeCiNbtCfg(
+    uint8_t sjw,
+    uint8_t tseg2,
+    uint8_t tseg1,
+    uint8_t brp) {
+  return static_cast<uint32_t>(sjw) |
+         (static_cast<uint32_t>(tseg2) << 8U) |
+         (static_cast<uint32_t>(tseg1) << 16U) |
+         (static_cast<uint32_t>(brp) << 24U);
+}
+
+constexpr uint32_t makeCiDbtCfg(
+    uint8_t sjw,
+    uint8_t tseg2,
+    uint8_t tseg1,
+    uint8_t brp) {
+  return makeCiNbtCfg(sjw, tseg2, tseg1, brp);
+}
+
+constexpr uint32_t makeCiTdc(uint8_t mode, uint8_t tdco) {
+  return (static_cast<uint32_t>(mode) << 16U) |
+         (static_cast<uint32_t>(tdco) << 8U);
+}
+
+constexpr CanFdTimingRegisters kTiming40MHz500K2M = {
+    .nominalBitTiming = makeCiNbtCfg(15U, 15U, 62U, 0U),
+    .dataBitTiming = makeCiDbtCfg(3U, 3U, 14U, 0U),
+    .tdcConfig = makeCiTdc(kTdcModeAuto, 15U),
+    .label = "40MHz / 500k / 2M",
+};
+
+constexpr CanFdTimingRegisters kTiming20MHz500K2M = {
+    .nominalBitTiming = makeCiNbtCfg(7U, 7U, 30U, 0U),
+    .dataBitTiming = makeCiDbtCfg(1U, 1U, 6U, 0U),
+    .tdcConfig = makeCiTdc(kTdcModeAuto, 7U),
+    .label = "20MHz / 500k / 2M",
+};
+
+bool resolveTimingRegisters(
+    uint32_t canClockHz,
+    uint32_t nominalBitRate,
+    uint32_t dataBitRate,
+    CanFdTimingRegisters *registers) {
+  if (registers == nullptr) {
+    return false;
+  }
+  if (nominalBitRate != kNominal500K || dataBitRate != kData2M) {
+    return false;
+  }
+
+  if (canClockHz == kCanClock40MHz) {
+    *registers = kTiming40MHz500K2M;
+    return true;
+  }
+  if (canClockHz == kCanClock20MHz) {
+    *registers = kTiming20MHz500K2M;
+    return true;
+  }
+
+  return false;
+}
+
+size_t roundUpToWord(size_t length) {
+  return (length + 3U) & ~static_cast<size_t>(0x03U);
+}
 
 SPIClass &fdSpi() {
   return SPI;
@@ -73,9 +142,9 @@ const char *CanFdBackend::backendName() const {
 
 CanBackendCapabilities CanFdBackend::capabilities() const {
   return {
-      .supportsClassicCan = false,
+      .supportsClassicCan = true,
       .supportsCanFd = true,
-      .backendReady = backendReady_,
+      .backendReady = controllerConfigured_,
   };
 }
 
@@ -98,7 +167,7 @@ const char *CanFdBackend::diagnosticText() const {
 
 bool CanFdBackend::begin(const CanBackendOptions &options) {
   options_ = options;
-  backendReady_ = false;
+  spiLinkReady_ = false;
   controllerConfigured_ = false;
   spiInitialized_ = false;
   oscReg_ = 0;
@@ -119,6 +188,11 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
       static_cast<int>(options.irqPin),
       static_cast<int>(options.resetPin),
       static_cast<int>(options.standbyPin));
+  Serial.printf(
+      "CAN-FD bus setup: controller_clk=%lu nominal=%lu data=%lu\n",
+      static_cast<unsigned long>(options.canClockHz),
+      static_cast<unsigned long>(options.nominalBitRate),
+      static_cast<unsigned long>(options.dataBitRate));
   Serial.println("CAN-FD note: stage 2 checks MCP2517FD SPI link and enables polling RX in normal mode (ACK enabled)");
 
   if (options.spiSckPin == GPIO_NUM_NC || options.spiMosiPin == GPIO_NUM_NC ||
@@ -129,9 +203,6 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
         "CAN-FD SPI pin configuration incomplete");
     return false;
   }
-
-  pinMode(static_cast<uint8_t>(options.spiCsPin), OUTPUT);
-  digitalWrite(static_cast<uint8_t>(options.spiCsPin), HIGH);
 
   if (options.resetPin != GPIO_NUM_NC) {
     pinMode(static_cast<uint8_t>(options.resetPin), OUTPUT);
@@ -146,27 +217,41 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
       static_cast<int>(options.spiSckPin),
       static_cast<int>(options.spiMisoPin),
       static_cast<int>(options.spiMosiPin),
-      static_cast<int>(options.spiCsPin));
+      -1);
+
+  // Keep chip-select as a plain GPIO. Letting SPI.claim the SS pin can leave
+  // the line in an unexpected state on this board, which matches the observed
+  // ~1.4 V "high" level on nCS.
+  gpio_reset_pin(options.spiCsPin);
+  gpio_set_direction(options.spiCsPin, GPIO_MODE_OUTPUT);
+  gpio_set_pull_mode(options.spiCsPin, GPIO_FLOATING);
+  gpio_set_level(options.spiCsPin, 1);
   spiInitialized_ = true;
   delay(5);
 
   uint32_t oscMode0 = 0;
   uint32_t ioconMode0 = 0;
+  uint32_t c1ConMode0 = 0;
   uint32_t oscMode0AfterReset = 0;
   uint32_t ioconMode0AfterReset = 0;
+  uint32_t c1ConMode0AfterReset = 0;
   uint32_t oscMode3 = 0;
   uint32_t ioconMode3 = 0;
+  uint32_t c1ConMode3 = 0;
 
   spiReadRegister32(kRegOsc, &oscMode0, kSpiMode0);
   spiReadRegister32(kRegIocon, &ioconMode0, kSpiMode0);
+  spiReadRegister32(kRegC1Con, &c1ConMode0, kSpiMode0);
 
   spiResetDevice();
   delay(5);
   spiReadRegister32(kRegOsc, &oscMode0AfterReset, kSpiMode0);
   spiReadRegister32(kRegIocon, &ioconMode0AfterReset, kSpiMode0);
+  spiReadRegister32(kRegC1Con, &c1ConMode0AfterReset, kSpiMode0);
 
   spiReadRegister32(kRegOsc, &oscMode3, kSpiMode3);
   spiReadRegister32(kRegIocon, &ioconMode3, kSpiMode3);
+  spiReadRegister32(kRegC1Con, &c1ConMode3, kSpiMode3);
 
   const bool mode0LooksGood =
       looksLikeReadableRegister(oscMode0) && looksLikeReadableRegister(ioconMode0) &&
@@ -182,54 +267,60 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
   if (mode0ResetLooksGood) {
     oscReg_ = oscMode0AfterReset;
     ioconReg_ = ioconMode0AfterReset;
-    backendReady_ = true;
+    spiLinkReady_ = true;
     snprintf(
         diagnosticTextBuf_,
         sizeof(diagnosticTextBuf_),
-        "CAN-FD SPI link OK (mode0/reset): OSC=0x%08lX IOCON=0x%08lX",
+        "CAN-FD SPI link OK (mode0/reset): OSC=0x%08lX IOCON=0x%08lX C1CON=0x%08lX",
         static_cast<unsigned long>(oscReg_),
-        static_cast<unsigned long>(ioconReg_));
+        static_cast<unsigned long>(ioconReg_),
+        static_cast<unsigned long>(c1ConMode0AfterReset));
   } else if (mode0LooksGood) {
     oscReg_ = oscMode0;
     ioconReg_ = ioconMode0;
-    backendReady_ = true;
+    spiLinkReady_ = true;
     snprintf(
         diagnosticTextBuf_,
         sizeof(diagnosticTextBuf_),
-        "CAN-FD SPI link OK (mode0): OSC=0x%08lX IOCON=0x%08lX",
+        "CAN-FD SPI link OK (mode0): OSC=0x%08lX IOCON=0x%08lX C1CON=0x%08lX",
         static_cast<unsigned long>(oscReg_),
-        static_cast<unsigned long>(ioconReg_));
+        static_cast<unsigned long>(ioconReg_),
+        static_cast<unsigned long>(c1ConMode0));
   } else if (mode3LooksGood) {
     oscReg_ = oscMode3;
     ioconReg_ = ioconMode3;
-    backendReady_ = true;
+    spiLinkReady_ = true;
     snprintf(
         diagnosticTextBuf_,
         sizeof(diagnosticTextBuf_),
-        "CAN-FD SPI link OK (mode3): OSC=0x%08lX IOCON=0x%08lX",
+        "CAN-FD SPI link OK (mode3): OSC=0x%08lX IOCON=0x%08lX C1CON=0x%08lX",
         static_cast<unsigned long>(oscReg_),
-        static_cast<unsigned long>(ioconReg_));
+        static_cast<unsigned long>(ioconReg_),
+        static_cast<unsigned long>(c1ConMode3));
   } else {
     oscReg_ = oscMode0AfterReset;
     ioconReg_ = ioconMode0AfterReset;
     snprintf(
         diagnosticTextBuf_,
         sizeof(diagnosticTextBuf_),
-        "CAN-FD SPI suspicious: m0=0x%08lX/0x%08lX m0r=0x%08lX/0x%08lX m3=0x%08lX/0x%08lX",
+        "CAN-FD SPI suspicious: m0=0x%08lX/0x%08lX/0x%08lX m0r=0x%08lX/0x%08lX/0x%08lX m3=0x%08lX/0x%08lX/0x%08lX",
         static_cast<unsigned long>(oscMode0),
         static_cast<unsigned long>(ioconMode0),
+        static_cast<unsigned long>(c1ConMode0),
         static_cast<unsigned long>(oscMode0AfterReset),
         static_cast<unsigned long>(ioconMode0AfterReset),
+        static_cast<unsigned long>(c1ConMode0AfterReset),
         static_cast<unsigned long>(oscMode3),
-        static_cast<unsigned long>(ioconMode3));
+        static_cast<unsigned long>(ioconMode3),
+        static_cast<unsigned long>(c1ConMode3));
   }
 
   Serial.println(diagnosticTextBuf_);
-  if (!backendReady_) {
+  if (!spiLinkReady_) {
     return true;
   }
 
-  controllerConfigured_ = initializeControllerForListenOnly();
+  controllerConfigured_ = initializeControllerForNormalRx();
   if (controllerConfigured_) {
     snprintf(
         diagnosticTextBuf_,
@@ -258,7 +349,7 @@ void CanFdBackend::end() {
     fdSpi().end();
   }
   spiInitialized_ = false;
-  backendReady_ = false;
+  spiLinkReady_ = false;
   controllerConfigured_ = false;
 }
 
@@ -376,8 +467,10 @@ void CanFdBackend::refreshLinkDiagnostics(uint32_t nowMs) {
 
   uint32_t oscMode0 = 0;
   uint32_t ioconMode0 = 0;
+  uint32_t c1ConMode0 = 0;
   spiReadRegister32(kRegOsc, &oscMode0, kSpiMode0);
   spiReadRegister32(kRegIocon, &ioconMode0, kSpiMode0);
+  spiReadRegister32(kRegC1Con, &c1ConMode0, kSpiMode0);
 
   oscReg_ = oscMode0;
   ioconReg_ = ioconMode0;
@@ -388,9 +481,10 @@ void CanFdBackend::refreshLinkDiagnostics(uint32_t nowMs) {
     snprintf(
         diagnosticTextBuf_,
         sizeof(diagnosticTextBuf_),
-        "CAN-FD RX ready: OSC=0x%08lX IOCON=0x%08lX FIFO1STA=0x%08lX",
+        "CAN-FD RX ready: OSC=0x%08lX IOCON=0x%08lX C1CON=0x%08lX FIFO1STA=0x%08lX",
         static_cast<unsigned long>(oscReg_),
         static_cast<unsigned long>(ioconReg_),
+        static_cast<unsigned long>(c1ConMode0),
         static_cast<unsigned long>(fifoSta1));
     return;
   }
@@ -398,14 +492,26 @@ void CanFdBackend::refreshLinkDiagnostics(uint32_t nowMs) {
   const bool readable =
       looksLikeReadableRegister(oscMode0) && looksLikeReadableRegister(ioconMode0);
 
+  if (spiLinkReady_ && readable) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD SPI link ready, controller not configured: OSC=0x%08lX IOCON=0x%08lX C1CON=0x%08lX",
+        static_cast<unsigned long>(oscMode0),
+        static_cast<unsigned long>(ioconMode0),
+        static_cast<unsigned long>(c1ConMode0));
+    return;
+  }
+
   snprintf(
       diagnosticTextBuf_,
       sizeof(diagnosticTextBuf_),
       readable
-          ? "CAN-FD SPI probe: OSC=0x%08lX IOCON=0x%08lX"
-          : "CAN-FD SPI probe suspicious: OSC=0x%08lX IOCON=0x%08lX",
+          ? "CAN-FD SPI probe: OSC=0x%08lX IOCON=0x%08lX C1CON=0x%08lX"
+          : "CAN-FD SPI probe suspicious: OSC=0x%08lX IOCON=0x%08lX C1CON=0x%08lX",
       static_cast<unsigned long>(oscMode0),
-      static_cast<unsigned long>(ioconMode0));
+      static_cast<unsigned long>(ioconMode0),
+      static_cast<unsigned long>(c1ConMode0));
 }
 
 bool CanFdBackend::setOperationMode(uint8_t reqop, uint32_t timeoutMs) {
@@ -421,7 +527,6 @@ bool CanFdBackend::setOperationMode(uint8_t reqop, uint32_t timeoutMs) {
 
   c1con &= ~kC1ConReqopMask;
   c1con |= static_cast<uint32_t>(reqop & 0x07U) << 24U;
-  c1con |= kC1ConOnMask;
   if (!spiWriteRegister32(kRegC1Con, c1con, kSpiMode0)) {
     snprintf(
         diagnosticTextBuf_,
@@ -461,7 +566,23 @@ bool CanFdBackend::setOperationMode(uint8_t reqop, uint32_t timeoutMs) {
   return false;
 }
 
-bool CanFdBackend::initializeControllerForListenOnly() {
+bool CanFdBackend::initializeControllerForNormalRx() {
+  CanFdTimingRegisters timing = {};
+  if (!resolveTimingRegisters(
+          options_.canClockHz,
+          options_.nominalBitRate,
+          options_.dataBitRate,
+          &timing)) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD init failed: unsupported timing clk=%lu nominal=%lu data=%lu",
+        static_cast<unsigned long>(options_.canClockHz),
+        static_cast<unsigned long>(options_.nominalBitRate),
+        static_cast<unsigned long>(options_.dataBitRate));
+    return false;
+  }
+
   if (!spiResetDevice()) {
     snprintf(
         diagnosticTextBuf_,
@@ -484,7 +605,6 @@ bool CanFdBackend::initializeControllerForListenOnly() {
         "CAN-FD init failed: cannot read C1CON in config mode");
     return false;
   }
-  c1con |= kC1ConOnMask;
   c1con &= ~(kC1ConTxqEnMask | kC1ConStefMask | kC1ConBrsDisMask);
   if (!spiWriteRegister32(kRegC1Con, c1con, kSpiMode0)) {
     snprintf(
@@ -495,13 +615,14 @@ bool CanFdBackend::initializeControllerForListenOnly() {
     return false;
   }
 
-  if (!spiWriteRegister32(kRegC1NbtCfg, kNominalBitTiming, kSpiMode0) ||
-      !spiWriteRegister32(kRegC1DbtCfg, kDataBitTiming, kSpiMode0) ||
-      !spiWriteRegister32(kRegC1Tdc, kTdcConfig, kSpiMode0)) {
+  if (!spiWriteRegister32(kRegC1NbtCfg, timing.nominalBitTiming, kSpiMode0) ||
+      !spiWriteRegister32(kRegC1DbtCfg, timing.dataBitTiming, kSpiMode0) ||
+      !spiWriteRegister32(kRegC1Tdc, timing.tdcConfig, kSpiMode0)) {
     snprintf(
         diagnosticTextBuf_,
         sizeof(diagnosticTextBuf_),
-        "CAN-FD init failed: bit timing write failed");
+        "CAN-FD init failed: bit timing write failed (%s)",
+        timing.label);
     return false;
   }
 
@@ -527,21 +648,6 @@ bool CanFdBackend::initializeControllerForListenOnly() {
         sizeof(diagnosticTextBuf_),
         "CAN-FD init failed: FIFO1 config write failed");
     return false;
-  }
-
-  for (uint8_t retry = 0; retry < 10U; ++retry) {
-    uint32_t fifoConStatus = 0;
-    if (!spiReadRegister32(kRegC1FifoCon1, &fifoConStatus, kSpiMode0)) {
-      snprintf(
-          diagnosticTextBuf_,
-          sizeof(diagnosticTextBuf_),
-          "CAN-FD init failed: FIFO1 config readback failed");
-      return false;
-    }
-    if ((fifoConStatus & kFifoConFresetMask) == 0U) {
-      break;
-    }
-    delay(1);
   }
 
   if (!spiWriteRegister32(kRegC1FltObj0, 0x00000000UL, kSpiMode0) ||
@@ -613,13 +719,16 @@ bool CanFdBackend::pollReceiveFifo(CanFrame *rxFrame) {
   }
 
   if (payloadLength > 0U) {
+    uint8_t payloadBuffer[sizeof(rxFrame->data)] = {0};
+    const size_t paddedLength = roundUpToWord(payloadLength);
     if (!spiReadBytes(
             static_cast<uint16_t>((fifoUa1 + kRxHeaderBytes) & 0x0FFFU),
-            rxFrame->data,
-            payloadLength,
+            payloadBuffer,
+            paddedLength,
             kSpiMode0)) {
       return false;
     }
+    memcpy(rxFrame->data, payloadBuffer, payloadLength);
   }
 
   uint32_t fifoCon1 = 0;

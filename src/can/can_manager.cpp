@@ -84,6 +84,9 @@ bool CanManager::begin(
       .irqPin = AppConfig::kCanFdIrqPin,
       .resetPin = AppConfig::kCanFdResetPin,
       .standbyPin = AppConfig::kCanFdStandbyPin,
+      .canClockHz = AppConfig::kCanFdControllerClockHz,
+      .nominalBitRate = AppConfig::kCanFdNominalBitRate,
+      .dataBitRate = AppConfig::kCanFdDataBitRate,
   };
   if (!backend_->begin(options)) {
     return false;

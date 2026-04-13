@@ -25,13 +25,13 @@ private:
   bool looksLikeReadableRegister(uint32_t value) const;
   void refreshLinkDiagnostics(uint32_t nowMs);
   bool setOperationMode(uint8_t reqop, uint32_t timeoutMs);
-  bool initializeControllerForListenOnly();
+  bool initializeControllerForNormalRx();
   bool pollReceiveFifo(CanFrame *rxFrame);
   static uint8_t dlcToLength(uint8_t dlc);
 
   CanBackendOptions options_ = {};
   bool spiInitialized_ = false;
-  bool backendReady_ = false;
+  bool spiLinkReady_ = false;
   bool controllerConfigured_ = false;
   uint32_t oscReg_ = 0;
   uint32_t ioconReg_ = 0;

@@ -12,13 +12,16 @@ constexpr CanProfileId kActiveCanProfile = CAN_PROFILE_TUCSON_FD_CANDIDATES;
 // Local clock display offset from UTC in minutes.
 constexpr int32_t kLocalUtcOffsetMinutes = 9 * 60;
 
-// Tentative MCP2518FD SPI pin plan for future CAN-FD bring-up.
+// MCP2517FD SPI pin plan for CAN-FD bring-up.
 // We intentionally keep Classic CAN on GPIO2/GPIO48 unchanged and reserve a
 // separate SPI path for the external CAN-FD controller.
 constexpr gpio_num_t kCanFdSpiSckPin = GPIO_NUM_5;
 constexpr gpio_num_t kCanFdSpiMosiPin = GPIO_NUM_4;
 constexpr gpio_num_t kCanFdSpiMisoPin = GPIO_NUM_45;
-constexpr gpio_num_t kCanFdSpiCsPin = GPIO_NUM_46;
+constexpr gpio_num_t kCanFdSpiCsPin = GPIO_NUM_32;
+constexpr uint32_t kCanFdControllerClockHz = 40000000UL;
+constexpr uint32_t kCanFdNominalBitRate = 500000UL;
+constexpr uint32_t kCanFdDataBitRate = 2000000UL;
 
 // First bring-up can start in polling mode, so IRQ/RESET/STBY stay optional.
 constexpr gpio_num_t kCanFdIrqPin = GPIO_NUM_NC;
@@ -68,7 +71,7 @@ struct PulseInputConfig {
   float speedFilterAlpha = 0.25f;
 };
 
-// Pulse input is disabled for now because GPIO46 is reused as MCP2517FD CS
+// Pulse input is disabled for now because a board GPIO is reused as MCP2517FD CS
 // during CAN-FD bring-up.
 constexpr PulseInputConfig kPulseInputConfig = {
     .inputPin = GPIO_NUM_NC,
