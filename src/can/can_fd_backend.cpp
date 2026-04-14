@@ -1,18 +1,24 @@
 #include "can_fd_backend.h"
 
 #include <Arduino.h>
-#include <SPI.h>
+
+#include <string.h>
+
 #include "driver/gpio.h"
+#include "driver/spi_master.h"
+#include "esp_err.h"
 
 namespace {
 
 constexpr uint8_t kSpiCmdReset = 0x0;
 constexpr uint8_t kSpiCmdWrite = 0x2;
 constexpr uint8_t kSpiCmdRead = 0x3;
-constexpr uint32_t kSpiClockHz = 100000;
-constexpr uint8_t kSpiMode0 = SPI_MODE0;
-constexpr uint8_t kSpiMode3 = SPI_MODE3;
+constexpr uint32_t kSpiClockHz = 10000;
+constexpr uint8_t kSpiMode0 = 0;
 constexpr uint32_t kProbeIntervalMs = 1000;
+constexpr spi_host_device_t kSpiHost = SPI2_HOST;
+constexpr size_t kRegisterTransferBytes = 6U;
+constexpr size_t kMaxSpiReadTransferBytes = 66U;
 
 // Register map (MCP2517FD / MCP2518FD family)
 constexpr uint16_t kRegOsc = 0x0E00;
@@ -130,8 +136,13 @@ size_t roundUpToWord(size_t length) {
   return (length + 3U) & ~static_cast<size_t>(0x03U);
 }
 
-SPIClass &fdSpi() {
-  return SPI;
+inline void setChipSelect(gpio_num_t pin, bool active) {
+  gpio_set_level(pin, active ? 0 : 1);
+}
+
+inline const char *safeEspErrName(esp_err_t err) {
+  const char *name = esp_err_to_name(err);
+  return name != nullptr ? name : "UNKNOWN";
 }
 
 }  // namespace
@@ -170,6 +181,7 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
   spiLinkReady_ = false;
   controllerConfigured_ = false;
   spiInitialized_ = false;
+  spiHandle_ = nullptr;
   oscReg_ = 0;
   ioconReg_ = 0;
   lastProbeMs_ = 0;
@@ -189,11 +201,12 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
       static_cast<int>(options.resetPin),
       static_cast<int>(options.standbyPin));
   Serial.printf(
-      "CAN-FD bus setup: controller_clk=%lu nominal=%lu data=%lu\n",
+      "CAN-FD bus setup: host=%d controller_clk=%lu nominal=%lu data=%lu\n",
+      static_cast<int>(kSpiHost),
       static_cast<unsigned long>(options.canClockHz),
       static_cast<unsigned long>(options.nominalBitRate),
       static_cast<unsigned long>(options.dataBitRate));
-  Serial.println("CAN-FD note: stage 2 checks MCP2517FD SPI link and enables polling RX in normal mode (ACK enabled)");
+  Serial.println("CAN-FD note: stage 2 uses ESP-IDF spi_master in mode 0 and enables polling RX in normal mode (ACK enabled)");
 
   if (options.spiSckPin == GPIO_NUM_NC || options.spiMosiPin == GPIO_NUM_NC ||
       options.spiMisoPin == GPIO_NUM_NC || options.spiCsPin == GPIO_NUM_NC) {
@@ -213,19 +226,60 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
     digitalWrite(static_cast<uint8_t>(options.standbyPin), LOW);
   }
 
-  fdSpi().begin(
-      static_cast<int>(options.spiSckPin),
-      static_cast<int>(options.spiMisoPin),
-      static_cast<int>(options.spiMosiPin),
-      -1);
-
-  // Keep chip-select as a plain GPIO. Letting SPI.claim the SS pin can leave
-  // the line in an unexpected state on this board, which matches the observed
-  // ~1.4 V "high" level on nCS.
   gpio_reset_pin(options.spiCsPin);
   gpio_set_direction(options.spiCsPin, GPIO_MODE_OUTPUT);
   gpio_set_pull_mode(options.spiCsPin, GPIO_FLOATING);
   gpio_set_level(options.spiCsPin, 1);
+
+  spi_bus_config_t busConfig = {};
+  busConfig.mosi_io_num = static_cast<int>(options.spiMosiPin);
+  busConfig.miso_io_num = static_cast<int>(options.spiMisoPin);
+  busConfig.sclk_io_num = static_cast<int>(options.spiSckPin);
+  busConfig.quadwp_io_num = -1;
+  busConfig.quadhd_io_num = -1;
+  busConfig.data4_io_num = -1;
+  busConfig.data5_io_num = -1;
+  busConfig.data6_io_num = -1;
+  busConfig.data7_io_num = -1;
+  busConfig.max_transfer_sz = static_cast<int>(kMaxSpiReadTransferBytes);
+  busConfig.flags = SPICOMMON_BUSFLAG_MASTER;
+  busConfig.intr_flags = 0;
+
+  esp_err_t err = spi_bus_initialize(kSpiHost, &busConfig, SPI_DMA_DISABLED);
+  if (err != ESP_OK) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD SPI bus init failed: %s (%d)",
+        safeEspErrName(err),
+        static_cast<int>(err));
+    Serial.println(diagnosticTextBuf_);
+    return false;
+  }
+
+  spi_device_interface_config_t devConfig = {};
+  devConfig.command_bits = 0;
+  devConfig.address_bits = 0;
+  devConfig.dummy_bits = 0;
+  devConfig.mode = kSpiMode0;
+  devConfig.clock_speed_hz = static_cast<int>(kSpiClockHz);
+  devConfig.spics_io_num = -1;
+  devConfig.queue_size = 1;
+  devConfig.flags = 0;
+
+  err = spi_bus_add_device(kSpiHost, &devConfig, &spiHandle_);
+  if (err != ESP_OK) {
+    spi_bus_free(kSpiHost);
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD SPI add-device failed: %s (%d)",
+        safeEspErrName(err),
+        static_cast<int>(err));
+    Serial.println(diagnosticTextBuf_);
+    return false;
+  }
+
   spiInitialized_ = true;
   delay(5);
 
@@ -235,9 +289,6 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
   uint32_t oscMode0AfterReset = 0;
   uint32_t ioconMode0AfterReset = 0;
   uint32_t c1ConMode0AfterReset = 0;
-  uint32_t oscMode3 = 0;
-  uint32_t ioconMode3 = 0;
-  uint32_t c1ConMode3 = 0;
 
   spiReadRegister32(kRegOsc, &oscMode0, kSpiMode0);
   spiReadRegister32(kRegIocon, &ioconMode0, kSpiMode0);
@@ -249,10 +300,6 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
   spiReadRegister32(kRegIocon, &ioconMode0AfterReset, kSpiMode0);
   spiReadRegister32(kRegC1Con, &c1ConMode0AfterReset, kSpiMode0);
 
-  spiReadRegister32(kRegOsc, &oscMode3, kSpiMode3);
-  spiReadRegister32(kRegIocon, &ioconMode3, kSpiMode3);
-  spiReadRegister32(kRegC1Con, &c1ConMode3, kSpiMode3);
-
   const bool mode0LooksGood =
       looksLikeReadableRegister(oscMode0) && looksLikeReadableRegister(ioconMode0) &&
       ((ioconMode0 & 0x03U) == 0x03U);
@@ -260,9 +307,6 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
       looksLikeReadableRegister(oscMode0AfterReset) &&
       looksLikeReadableRegister(ioconMode0AfterReset) &&
       ((ioconMode0AfterReset & 0x03U) == 0x03U);
-  const bool mode3LooksGood =
-      looksLikeReadableRegister(oscMode3) && looksLikeReadableRegister(ioconMode3) &&
-      ((ioconMode3 & 0x03U) == 0x03U);
 
   if (mode0ResetLooksGood) {
     oscReg_ = oscMode0AfterReset;
@@ -286,33 +330,19 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
         static_cast<unsigned long>(oscReg_),
         static_cast<unsigned long>(ioconReg_),
         static_cast<unsigned long>(c1ConMode0));
-  } else if (mode3LooksGood) {
-    oscReg_ = oscMode3;
-    ioconReg_ = ioconMode3;
-    spiLinkReady_ = true;
-    snprintf(
-        diagnosticTextBuf_,
-        sizeof(diagnosticTextBuf_),
-        "CAN-FD SPI link OK (mode3): OSC=0x%08lX IOCON=0x%08lX C1CON=0x%08lX",
-        static_cast<unsigned long>(oscReg_),
-        static_cast<unsigned long>(ioconReg_),
-        static_cast<unsigned long>(c1ConMode3));
   } else {
     oscReg_ = oscMode0AfterReset;
     ioconReg_ = ioconMode0AfterReset;
     snprintf(
         diagnosticTextBuf_,
         sizeof(diagnosticTextBuf_),
-        "CAN-FD SPI suspicious: m0=0x%08lX/0x%08lX/0x%08lX m0r=0x%08lX/0x%08lX/0x%08lX m3=0x%08lX/0x%08lX/0x%08lX",
+        "CAN-FD SPI suspicious: m0=0x%08lX/0x%08lX/0x%08lX m0r=0x%08lX/0x%08lX/0x%08lX",
         static_cast<unsigned long>(oscMode0),
         static_cast<unsigned long>(ioconMode0),
         static_cast<unsigned long>(c1ConMode0),
         static_cast<unsigned long>(oscMode0AfterReset),
         static_cast<unsigned long>(ioconMode0AfterReset),
-        static_cast<unsigned long>(c1ConMode0AfterReset),
-        static_cast<unsigned long>(oscMode3),
-        static_cast<unsigned long>(ioconMode3),
-        static_cast<unsigned long>(c1ConMode3));
+        static_cast<unsigned long>(c1ConMode0AfterReset));
   }
 
   Serial.println(diagnosticTextBuf_);
@@ -339,14 +369,16 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
     Serial.println(diagnosticTextBuf_);
   }
 
-  // Keep the backend alive so status text and repeated probes continue even if
-  // controller configuration fails.
   return true;
 }
 
 void CanFdBackend::end() {
+  if (spiHandle_ != nullptr) {
+    spi_bus_remove_device(spiHandle_);
+    spiHandle_ = nullptr;
+  }
   if (spiInitialized_) {
-    fdSpi().end();
+    spi_bus_free(kSpiHost);
   }
   spiInitialized_ = false;
   spiLinkReady_ = false;
@@ -373,20 +405,49 @@ bool CanFdBackend::getStatus(twai_status_info_t *statusInfo) const {
   return false;
 }
 
+bool CanFdBackend::spiTransfer(
+    const uint8_t *txData,
+    uint8_t *rxData,
+    size_t length,
+    uint8_t spiMode) {
+  (void)spiMode;
+  if (!spiInitialized_ || spiHandle_ == nullptr || txData == nullptr || length == 0U) {
+    return false;
+  }
+
+  spi_transaction_t transaction = {};
+  transaction.length = static_cast<size_t>(length * 8U);
+  transaction.tx_buffer = txData;
+  transaction.rx_buffer = rxData;
+
+  setChipSelect(options_.spiCsPin, true);
+  const esp_err_t err = spi_device_polling_transmit(spiHandle_, &transaction);
+  setChipSelect(options_.spiCsPin, false);
+
+  if (err != ESP_OK) {
+    snprintf(
+        diagnosticTextBuf_,
+        sizeof(diagnosticTextBuf_),
+        "CAN-FD SPI transfer failed: %s (%d)",
+        safeEspErrName(err),
+        static_cast<int>(err));
+    return false;
+  }
+
+  return true;
+}
+
 bool CanFdBackend::spiResetDevice() {
   if (!spiInitialized_) {
     return false;
   }
 
-  SPISettings settings(kSpiClockHz, MSBFIRST, SPI_MODE0);
   const uint16_t instruction = buildInstruction(kSpiCmdReset, 0x000);
-  fdSpi().beginTransaction(settings);
-  digitalWrite(static_cast<uint8_t>(options_.spiCsPin), LOW);
-  fdSpi().transfer(static_cast<uint8_t>(instruction >> 8U));
-  fdSpi().transfer(static_cast<uint8_t>(instruction & 0xFFU));
-  digitalWrite(static_cast<uint8_t>(options_.spiCsPin), HIGH);
-  fdSpi().endTransaction();
-  return true;
+  uint8_t txBuffer[2] = {
+      static_cast<uint8_t>(instruction >> 8U),
+      static_cast<uint8_t>(instruction & 0xFFU),
+  };
+  return spiTransfer(txBuffer, nullptr, sizeof(txBuffer), kSpiMode0);
 }
 
 bool CanFdBackend::spiReadRegister32(uint16_t address, uint32_t *value, uint8_t spiMode) {
@@ -395,20 +456,24 @@ bool CanFdBackend::spiReadRegister32(uint16_t address, uint32_t *value, uint8_t 
   }
 
   const uint16_t instruction = buildInstruction(kSpiCmdRead, address);
-  SPISettings settings(kSpiClockHz, MSBFIRST, spiMode);
-  uint32_t readValue = 0;
+  uint8_t txBuffer[kRegisterTransferBytes] = {
+      static_cast<uint8_t>(instruction >> 8U),
+      static_cast<uint8_t>(instruction & 0xFFU),
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+  };
+  uint8_t rxBuffer[kRegisterTransferBytes] = {};
 
-  fdSpi().beginTransaction(settings);
-  digitalWrite(static_cast<uint8_t>(options_.spiCsPin), LOW);
-  fdSpi().transfer(static_cast<uint8_t>(instruction >> 8U));
-  fdSpi().transfer(static_cast<uint8_t>(instruction & 0xFFU));
-  for (uint8_t i = 0; i < 4U; ++i) {
-    readValue |= static_cast<uint32_t>(fdSpi().transfer(0x00)) << (8U * i);
+  if (!spiTransfer(txBuffer, rxBuffer, sizeof(txBuffer), spiMode)) {
+    return false;
   }
-  digitalWrite(static_cast<uint8_t>(options_.spiCsPin), HIGH);
-  fdSpi().endTransaction();
 
-  *value = readValue;
+  *value = static_cast<uint32_t>(rxBuffer[2]) |
+           (static_cast<uint32_t>(rxBuffer[3]) << 8U) |
+           (static_cast<uint32_t>(rxBuffer[4]) << 16U) |
+           (static_cast<uint32_t>(rxBuffer[5]) << 24U);
   return true;
 }
 
@@ -418,35 +483,37 @@ bool CanFdBackend::spiWriteRegister32(uint16_t address, uint32_t value, uint8_t 
   }
 
   const uint16_t instruction = buildInstruction(kSpiCmdWrite, address);
-  SPISettings settings(kSpiClockHz, MSBFIRST, spiMode);
-  fdSpi().beginTransaction(settings);
-  digitalWrite(static_cast<uint8_t>(options_.spiCsPin), LOW);
-  fdSpi().transfer(static_cast<uint8_t>(instruction >> 8U));
-  fdSpi().transfer(static_cast<uint8_t>(instruction & 0xFFU));
-  for (uint8_t i = 0; i < 4U; ++i) {
-    fdSpi().transfer(static_cast<uint8_t>((value >> (8U * i)) & 0xFFU));
-  }
-  digitalWrite(static_cast<uint8_t>(options_.spiCsPin), HIGH);
-  fdSpi().endTransaction();
-  return true;
+  uint8_t txBuffer[kRegisterTransferBytes] = {
+      static_cast<uint8_t>(instruction >> 8U),
+      static_cast<uint8_t>(instruction & 0xFFU),
+      static_cast<uint8_t>((value >> 0U) & 0xFFU),
+      static_cast<uint8_t>((value >> 8U) & 0xFFU),
+      static_cast<uint8_t>((value >> 16U) & 0xFFU),
+      static_cast<uint8_t>((value >> 24U) & 0xFFU),
+  };
+
+  return spiTransfer(txBuffer, nullptr, sizeof(txBuffer), spiMode);
 }
 
 bool CanFdBackend::spiReadBytes(uint16_t address, uint8_t *data, size_t length, uint8_t spiMode) {
   if (!spiInitialized_ || (data == nullptr) || (length == 0U)) {
     return false;
   }
+  if ((length + 2U) > kMaxSpiReadTransferBytes) {
+    return false;
+  }
 
   const uint16_t instruction = buildInstruction(kSpiCmdRead, address);
-  SPISettings settings(kSpiClockHz, MSBFIRST, spiMode);
-  fdSpi().beginTransaction(settings);
-  digitalWrite(static_cast<uint8_t>(options_.spiCsPin), LOW);
-  fdSpi().transfer(static_cast<uint8_t>(instruction >> 8U));
-  fdSpi().transfer(static_cast<uint8_t>(instruction & 0xFFU));
-  for (size_t i = 0; i < length; ++i) {
-    data[i] = fdSpi().transfer(0x00);
+  uint8_t txBuffer[kMaxSpiReadTransferBytes] = {};
+  uint8_t rxBuffer[kMaxSpiReadTransferBytes] = {};
+  txBuffer[0] = static_cast<uint8_t>(instruction >> 8U);
+  txBuffer[1] = static_cast<uint8_t>(instruction & 0xFFU);
+
+  if (!spiTransfer(txBuffer, rxBuffer, length + 2U, spiMode)) {
+    return false;
   }
-  digitalWrite(static_cast<uint8_t>(options_.spiCsPin), HIGH);
-  fdSpi().endTransaction();
+
+  memcpy(data, &rxBuffer[2], length);
   return true;
 }
 
@@ -750,3 +817,4 @@ uint8_t CanFdBackend::dlcToLength(uint8_t dlc) {
   };
   return kDlcLengthMap[dlc & 0x0FU];
 }
+
