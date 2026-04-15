@@ -46,3 +46,4 @@ private:
   uint32_t lastProbeMs_ = 0;
   char diagnosticTextBuf_[192] = {};
 };
+

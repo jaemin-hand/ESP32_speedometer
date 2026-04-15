@@ -15,10 +15,10 @@ constexpr int32_t kLocalUtcOffsetMinutes = 9 * 60;
 // MCP2517FD SPI pin plan for CAN-FD bring-up.
 // We intentionally keep Classic CAN on GPIO2/GPIO48 unchanged and reserve a
 // separate SPI path for the external CAN-FD controller.
-constexpr gpio_num_t kCanFdSpiSckPin = GPIO_NUM_9;
-constexpr gpio_num_t kCanFdSpiMosiPin = GPIO_NUM_8;
-constexpr gpio_num_t kCanFdSpiMisoPin = GPIO_NUM_10;
-constexpr gpio_num_t kCanFdSpiCsPin = GPIO_NUM_7;
+constexpr gpio_num_t kCanFdSpiSckPin = GPIO_NUM_5;
+constexpr gpio_num_t kCanFdSpiMosiPin = GPIO_NUM_4;
+constexpr gpio_num_t kCanFdSpiMisoPin = GPIO_NUM_45;
+constexpr gpio_num_t kCanFdSpiCsPin = GPIO_NUM_32;
 constexpr uint32_t kCanFdControllerClockHz = 40000000UL;
 constexpr uint32_t kCanFdNominalBitRate = 500000UL;
 constexpr uint32_t kCanFdDataBitRate = 2000000UL;
@@ -89,4 +89,5 @@ constexpr PulseInputConfig kPulseInputConfig = {
 };
 
 }  // namespace AppConfig
+
 

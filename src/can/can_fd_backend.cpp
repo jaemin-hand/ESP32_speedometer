@@ -16,7 +16,7 @@ constexpr uint8_t kSpiCmdRead = 0x3;
 constexpr uint32_t kSpiClockHz = 10000;
 constexpr uint8_t kSpiMode0 = 0;
 constexpr uint32_t kProbeIntervalMs = 1000;
-constexpr spi_host_device_t kSpiHost = SPI2_HOST;
+constexpr spi_host_device_t kSpiHost = SPI3_HOST;
 constexpr size_t kRegisterTransferBytes = 6U;
 constexpr size_t kMaxSpiReadTransferBytes = 66U;
 
@@ -817,4 +817,5 @@ uint8_t CanFdBackend::dlcToLength(uint8_t dlc) {
   };
   return kDlcLengthMap[dlc & 0x0FU];
 }
+
 
