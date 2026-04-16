@@ -13,7 +13,6 @@ namespace {
 constexpr uint8_t kSpiCmdReset = 0x0;
 constexpr uint8_t kSpiCmdWrite = 0x2;
 constexpr uint8_t kSpiCmdRead = 0x3;
-constexpr uint32_t kSpiClockHz = 10000;
 constexpr uint8_t kSpiMode0 = 0;
 constexpr uint32_t kProbeIntervalMs = 1000;
 constexpr spi_host_device_t kSpiHost = SPI3_HOST;
@@ -30,7 +29,6 @@ constexpr uint16_t kRegC1Tdc = 0x00C;
 constexpr uint16_t kRegC1Int = 0x01C;
 constexpr uint16_t kRegC1RxIf = 0x020;
 constexpr uint16_t kRegC1TefCon = 0x040;
-constexpr uint16_t kRegC1FifoBa = 0x04C;
 constexpr uint16_t kRegC1TxqCon = 0x050;
 constexpr uint16_t kRegC1FifoCon1 = 0x05C;
 constexpr uint16_t kRegC1FifoSta1 = 0x060;
@@ -201,8 +199,9 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
       static_cast<int>(options.resetPin),
       static_cast<int>(options.standbyPin));
   Serial.printf(
-      "CAN-FD bus setup: host=%d controller_clk=%lu nominal=%lu data=%lu\n",
+      "CAN-FD bus setup: host=%d spi=%lu controller_clk=%lu nominal=%lu data=%lu\n",
       static_cast<int>(kSpiHost),
+      static_cast<unsigned long>(options.spiClockHz),
       static_cast<unsigned long>(options.canClockHz),
       static_cast<unsigned long>(options.nominalBitRate),
       static_cast<unsigned long>(options.dataBitRate));
@@ -245,7 +244,7 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
   busConfig.flags = SPICOMMON_BUSFLAG_MASTER;
   busConfig.intr_flags = 0;
 
-  esp_err_t err = spi_bus_initialize(kSpiHost, &busConfig, SPI_DMA_DISABLED);
+  esp_err_t err = spi_bus_initialize(kSpiHost, &busConfig, SPI_DMA_CH_AUTO);
   if (err != ESP_OK) {
     snprintf(
         diagnosticTextBuf_,
@@ -262,7 +261,7 @@ bool CanFdBackend::begin(const CanBackendOptions &options) {
   devConfig.address_bits = 0;
   devConfig.dummy_bits = 0;
   devConfig.mode = kSpiMode0;
-  devConfig.clock_speed_hz = static_cast<int>(kSpiClockHz);
+  devConfig.clock_speed_hz = static_cast<int>(options.spiClockHz);
   devConfig.spics_io_num = -1;
   devConfig.queue_size = 1;
   devConfig.flags = 0;
@@ -696,8 +695,7 @@ bool CanFdBackend::initializeControllerForNormalRx() {
   if (!spiWriteRegister32(kRegC1Int, 0x00000000UL, kSpiMode0) ||
       !spiWriteRegister32(kRegC1RxIf, 0x00000000UL, kSpiMode0) ||
       !spiWriteRegister32(kRegC1TefCon, 0x00000000UL, kSpiMode0) ||
-      !spiWriteRegister32(kRegC1TxqCon, 0x00000000UL, kSpiMode0) ||
-      !spiWriteRegister32(kRegC1FifoBa, kMessageRamBase, kSpiMode0)) {
+      !spiWriteRegister32(kRegC1TxqCon, 0x00000000UL, kSpiMode0)) {
     snprintf(
         diagnosticTextBuf_,
         sizeof(diagnosticTextBuf_),
@@ -753,22 +751,25 @@ bool CanFdBackend::pollReceiveFifo(CanFrame *rxFrame) {
     return false;
   }
 
+  const uint16_t fifoRamAddress =
+      static_cast<uint16_t>((kMessageRamBase + (fifoUa1 & 0x0FFFU)) & 0x0FFFU);
+
   uint8_t header[kRxHeaderBytes] = {0};
-  if (!spiReadBytes(static_cast<uint16_t>(fifoUa1 & 0x0FFFU), header, sizeof(header), kSpiMode0)) {
+  if (!spiReadBytes(fifoRamAddress, header, sizeof(header), kSpiMode0)) {
     return false;
   }
 
-  const uint8_t r1 = header[5];
-  const uint8_t dlc = static_cast<uint8_t>(r1 & 0x0FU);
+  const uint8_t frameCtrl = header[4];
+  const uint8_t dlc = static_cast<uint8_t>(frameCtrl & 0x0FU);
   const uint8_t payloadLength = dlcToLength(dlc);
   if (payloadLength > sizeof(rxFrame->data)) {
     return false;
   }
 
   rxFrame->clear();
-  rxFrame->fdFormat = (r1 & 0x80U) != 0U;
-  rxFrame->bitrateSwitch = (r1 & 0x40U) != 0U;
-  rxFrame->extended = (r1 & 0x10U) != 0U;
+  rxFrame->fdFormat = (frameCtrl & 0x80U) != 0U;
+  rxFrame->bitrateSwitch = (frameCtrl & 0x40U) != 0U;
+  rxFrame->extended = (frameCtrl & 0x10U) != 0U;
   rxFrame->dataLength = payloadLength;
 
   const uint16_t sid =
@@ -789,7 +790,7 @@ bool CanFdBackend::pollReceiveFifo(CanFrame *rxFrame) {
     uint8_t payloadBuffer[sizeof(rxFrame->data)] = {0};
     const size_t paddedLength = roundUpToWord(payloadLength);
     if (!spiReadBytes(
-            static_cast<uint16_t>((fifoUa1 + kRxHeaderBytes) & 0x0FFFU),
+            static_cast<uint16_t>((fifoRamAddress + kRxHeaderBytes) & 0x0FFFU),
             payloadBuffer,
             paddedLength,
             kSpiMode0)) {
@@ -817,5 +818,6 @@ uint8_t CanFdBackend::dlcToLength(uint8_t dlc) {
   };
   return kDlcLengthMap[dlc & 0x0FU];
 }
+
 
 

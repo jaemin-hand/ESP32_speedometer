@@ -26,7 +26,6 @@ float decodeSantaFeWheelSample(uint8_t lowByte, uint8_t highByte) {
 }
 
 constexpr uint8_t kMaxFramesPerPoll = 8;
-constexpr uint32_t kRawCanPrintIntervalMs = 100;
 
 ICanBackend *selectBackend(CanBackendType backendType) {
   switch (backendType) {
@@ -87,6 +86,7 @@ bool CanManager::begin(
       .canClockHz = AppConfig::kCanFdControllerClockHz,
       .nominalBitRate = AppConfig::kCanFdNominalBitRate,
       .dataBitRate = AppConfig::kCanFdDataBitRate,
+      .spiClockHz = AppConfig::kCanFdSpiClockHz,
   };
   if (!backend_->begin(options)) {
     return false;
@@ -145,9 +145,11 @@ void CanManager::poll(uint32_t nowMs) {
     lastRxMs_ = nowMs;
     formatMonitorLine(rxFrame, monitorLine, sizeof(monitorLine));
 
-    if ((lastRawPrintMs_ == 0U) ||
-        ((nowMs - lastRawPrintMs_) >= kRawCanPrintIntervalMs)) {
+    if (AppConfig::kEnableCanRawSerialLog &&
+        ((lastRawPrintMs_ == 0U) ||
+         ((nowMs - lastRawPrintMs_) >= AppConfig::kCanRawSerialLogIntervalMs))) {
       lastRawPrintMs_ = nowMs;
+      Serial.printf("CAN RX raw: %s\n", monitorLine);
     }
 
     appendMonitorLine(rxFrame);

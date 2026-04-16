@@ -3,31 +3,35 @@
   "configurations": [
     {
       "name": "Arduino",
-      "compilerPath": "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-rv32\\2511\\bin\\riscv32-esp-elf-g++",
+      "compilerPath": "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-rv32\\2601\\bin\\riscv32-esp-elf-g++",
       "compileCommands": "${workspaceFolder}\\.vscode\\compile_commands.json",
       "intelliSenseMode": "windows-gcc-x64",
       "includePath": [
         "${workspaceFolder}",
         "${workspaceFolder}\\src\\**",
-        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.7\\qio_qspi\\include",
-        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.7\\include\\**",
-        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
-        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\libraries\\SPI\\src",
-        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32p4",
-        "C:\\Users\\thswo\\Documents\\Arduino\\libraries\\lvgl\\src"
+        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.8\\qio_qspi\\include",
+        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.8\\include\\**",
+        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.8\\cores\\esp32",
+        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.8\\libraries\\SPI\\src",
+        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.8\\variants\\esp32p4",
+        "C:\\Users\\thswo\\Documents\\Arduino\\libraries\\lvgl\\src",
+        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-rv32\\2601\\riscv32-esp-elf\\include",
+        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-rv32\\2601\\riscv32-esp-elf\\sys-include"
       ],
       "forcedInclude": [
-        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32\\Arduino.h"
+        "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.8\\cores\\esp32\\Arduino.h"
       ],
       "browse": {
         "path": [
           "${workspaceFolder}",
           "${workspaceFolder}\\src",
-          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.7\\qio_qspi\\include",
-          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.7\\include",
-          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\cores\\esp32",
-          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.7\\variants\\esp32p4",
-          "C:\\Users\\thswo\\Documents\\Arduino\\libraries\\lvgl\\src"
+          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.8\\qio_qspi\\include",
+          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp32p4_es-libs\\3.3.8\\include",
+          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.8\\cores\\esp32",
+          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\hardware\\esp32\\3.3.8\\variants\\esp32p4",
+          "C:\\Users\\thswo\\Documents\\Arduino\\libraries\\lvgl\\src",
+          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-rv32\\2601\\riscv32-esp-elf\\include",
+          "C:\\Users\\thswo\\AppData\\Local\\Arduino15\\packages\\esp32\\tools\\esp-rv32\\2601\\riscv32-esp-elf\\sys-include"
         ],
         "limitSymbolsToIncludedHeaders": true
       },

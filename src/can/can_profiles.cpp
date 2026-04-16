@@ -35,52 +35,55 @@ constexpr CanSpeedDecoderConfig kSantaFeClassicDecoders[] = {
     },
 };
 
-// Tucson NX4 candidate list from offline CAN-FD log analysis.
-// These remain disabled until the CAN-FD backend is implemented and the
-// payload interpretation is verified against live data.
+// Tucson NX4 CAN-FD speed candidates from offline log analysis.
+// Best decimal-resolution candidates:
+//   - 0x0B5 bytes[22..23] little-endian * 0.01
+//   - 0x040 bytes[16..17] little-endian * 0.01
+// Coarse fallback only:
+//   - 0x145 bytes[6..7] little-endian / 256.0
 constexpr CanSpeedDecoderConfig kTucsonFdCandidateDecoders[] = {
     {
-        false,
-        "tucson_fd_candidate_0x100_b20",
-        0x100,
+        true,
+        "tucson_fd_vehicle_speed_0x0b5",
+        0x0B5,
         false,
         true,
         CAN_SPEED_DECODER_UNSIGNED,
-        10,
-        20,
-        1,
+        30,
+        22,
+        2,
         CAN_SIGNAL_LITTLE_ENDIAN,
-        1.0f,
+        0.01f,
         0.0f,
         250,
     },
     {
+        true,
+        "tucson_fd_vehicle_speed_0x040",
+        0x040,
         false,
-        "tucson_fd_candidate_0x145_b07",
+        true,
+        CAN_SPEED_DECODER_UNSIGNED,
+        25,
+        16,
+        2,
+        CAN_SIGNAL_LITTLE_ENDIAN,
+        0.01f,
+        0.0f,
+        250,
+    },
+    {
+        true,
+        "tucson_fd_coarse_fallback_0x145",
         0x145,
         false,
         true,
         CAN_SPEED_DECODER_UNSIGNED,
         10,
-        7,
-        1,
+        6,
+        2,
         CAN_SIGNAL_LITTLE_ENDIAN,
-        1.0f,
-        0.0f,
-        250,
-    },
-    {
-        false,
-        "tucson_fd_candidate_0x0B5_b08",
-        0x0B5,
-        false,
-        true,
-        CAN_SPEED_DECODER_UNSIGNED,
-        10,
-        8,
-        1,
-        CAN_SIGNAL_LITTLE_ENDIAN,
-        1.0f,
+        1.0f / 256.0f,
         0.0f,
         250,
     },
@@ -99,7 +102,7 @@ constexpr CanProfile kProfiles[] = {
         CAN_PROFILE_TUCSON_FD_CANDIDATES,
         "Tucson NX4 CAN-FD Candidates",
         CAN_BACKEND_FD,
-        "Offline FD candidates only for now: 0x100 byte20, 0x145 byte7, 0x0B5 byte8",
+        "Offline log says decimal speed is strongest on 0x0B5 u16@22 /100, backup 0x040 u16@16 /100; 0x145 u16@6 /256 is coarse fallback only",
         kTucsonFdCandidateDecoders,
         sizeof(kTucsonFdCandidateDecoders) / sizeof(kTucsonFdCandidateDecoders[0]),
     },

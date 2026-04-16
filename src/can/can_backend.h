@@ -24,6 +24,7 @@ struct CanBackendOptions {
   uint32_t canClockHz = 40000000UL;
   uint32_t nominalBitRate = 500000UL;
   uint32_t dataBitRate = 2000000UL;
+  uint32_t spiClockHz = 1000000UL;
 };
 
 struct CanBackendCapabilities {

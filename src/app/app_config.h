@@ -19,9 +19,18 @@ constexpr gpio_num_t kCanFdSpiSckPin = GPIO_NUM_5;
 constexpr gpio_num_t kCanFdSpiMosiPin = GPIO_NUM_4;
 constexpr gpio_num_t kCanFdSpiMisoPin = GPIO_NUM_45;
 constexpr gpio_num_t kCanFdSpiCsPin = GPIO_NUM_32;
+// 10 kHz was enough for bring-up but stalls the UI during live CAN-FD RX.
+constexpr uint32_t kCanFdSpiClockHz = 1000000UL;
 constexpr uint32_t kCanFdControllerClockHz = 40000000UL;
 constexpr uint32_t kCanFdNominalBitRate = 500000UL;
 constexpr uint32_t kCanFdDataBitRate = 2000000UL;
+
+// Runtime serial debug controls. Disable periodic logs by default so UI
+// refresh stays smooth while CAN-FD traffic is active.
+constexpr bool kEnableCanRawSerialLog = false;
+constexpr uint32_t kCanRawSerialLogIntervalMs = 100U;
+constexpr bool kEnablePeriodicGpsSummary = false;
+constexpr bool kEnablePeriodicCanStatus = false;
 
 // First bring-up can start in polling mode, so IRQ/RESET/STBY stay optional.
 constexpr gpio_num_t kCanFdIrqPin = GPIO_NUM_NC;

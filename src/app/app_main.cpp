@@ -662,12 +662,14 @@ void appLoop() {
   fusionManager.update(fusionInputs);
   distanceManager.update(nowMs, fusionManager.getState().selectedSpeedKmh);
 
-  if ((nowMs - lastPrintMs) >= DEBUG_PRINT_INTERVAL_MS) {
+  if (AppConfig::kEnablePeriodicGpsSummary &&
+      ((nowMs - lastPrintMs) >= DEBUG_PRINT_INTERVAL_MS)) {
     lastPrintMs = nowMs;
     printGpsSummary();
   }
 
-  if ((nowMs - lastCanStatusMs) >= CAN_STATUS_INTERVAL_MS) {
+  if (AppConfig::kEnablePeriodicCanStatus &&
+      ((nowMs - lastCanStatusMs) >= CAN_STATUS_INTERVAL_MS)) {
     lastCanStatusMs = nowMs;
     canManager.printStatus("CAN status");
     gnss.printSbfDiagnostics("GNSS SBF status");
