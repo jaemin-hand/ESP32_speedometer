@@ -25,8 +25,10 @@ float decodeSantaFeWheelSample(uint8_t lowByte, uint8_t highByte) {
   return static_cast<float>(rawValue) / 16.0f;
 }
 
-constexpr uint8_t kMaxFramesPerPoll = 8;
-constexpr uint32_t kRawCanPrintIntervalMs = 100;
+constexpr uint8_t kMaxFramesPerPoll = 32;
+constexpr uint32_t kSpeedJumpGuardWindowMs = 2000;
+constexpr float kSpeedJumpGuardBaseKmh = 5.0f;
+constexpr float kSpeedJumpGuardPerMs = 0.03f;
 
 ICanBackend *selectBackend(CanBackendType backendType) {
   switch (backendType) {
@@ -37,6 +39,25 @@ ICanBackend *selectBackend(CanBackendType backendType) {
     default:
       return nullptr;
   }
+}
+
+bool isPlausibleSpeedTransition(
+    const CanDecodedSpeedState &currentSpeed,
+    float nextSpeedKmh,
+    uint32_t nowMs) {
+  if (!currentSpeed.valid || (nowMs < currentSpeed.lastUpdateMs)) {
+    return true;
+  }
+
+  const uint32_t ageMs = nowMs - currentSpeed.lastUpdateMs;
+  if (ageMs >= kSpeedJumpGuardWindowMs) {
+    return true;
+  }
+
+  const float deltaKmh = fabsf(nextSpeedKmh - currentSpeed.speedKmh);
+  const float maxDeltaKmh =
+      kSpeedJumpGuardBaseKmh + (static_cast<float>(ageMs) * kSpeedJumpGuardPerMs);
+  return deltaKmh <= maxDeltaKmh;
 }
 
 }  // namespace
@@ -84,9 +105,12 @@ bool CanManager::begin(
       .irqPin = AppConfig::kCanFdIrqPin,
       .resetPin = AppConfig::kCanFdResetPin,
       .standbyPin = AppConfig::kCanFdStandbyPin,
+      .canClockHz = AppConfig::kCanFdControllerClockHz,
+      .nominalBitRate = AppConfig::kCanFdNominalBitRate,
+      .dataBitRate = AppConfig::kCanFdDataBitRate,
+      .spiClockHz = AppConfig::kCanFdSpiClockHz,
   };
   if (!backend_->begin(options)) {
-    backend_ = nullptr;
     return false;
   }
 
@@ -136,19 +160,52 @@ void CanManager::poll(uint32_t nowMs) {
     return;
   }
 
+  const auto frameMatchesSpeedDecoder = [this](const CanFrame &frame) {
+    if ((configuredProfile_ == nullptr) || (configuredProfile_->speedDecoders == nullptr)) {
+      return false;
+    }
+
+    for (size_t i = 0; i < configuredProfile_->speedDecoderCount; ++i) {
+      const CanSpeedDecoderConfig &config = configuredProfile_->speedDecoders[i];
+      if (!config.enabled) {
+        continue;
+      }
+      if (config.identifier != frame.identifier) {
+        continue;
+      }
+      if (config.fdFormat != frame.fdFormat) {
+        continue;
+      }
+      if (config.extended != frame.extended) {
+        continue;
+      }
+      return true;
+    }
+
+    return false;
+  };
+
   CanFrame rxFrame;
   uint8_t framesProcessed = 0;
   while ((framesProcessed < kMaxFramesPerPoll) && backend_->receive(&rxFrame)) {
-    char monitorLine[kMonitorLineLength] = {0};
     lastRxMs_ = nowMs;
-    formatMonitorLine(rxFrame, monitorLine, sizeof(monitorLine));
+    const bool trackFrame = frameMatchesSpeedDecoder(rxFrame);
 
-    if ((lastRawPrintMs_ == 0U) ||
-        ((nowMs - lastRawPrintMs_) >= kRawCanPrintIntervalMs)) {
-      lastRawPrintMs_ = nowMs;
+    if (trackFrame || AppConfig::kEnableCanRawSerialLog) {
+      char monitorLine[kMonitorLineLength] = {0};
+      formatMonitorLine(rxFrame, monitorLine, sizeof(monitorLine));
+
+      if (AppConfig::kEnableCanRawSerialLog &&
+          ((lastRawPrintMs_ == 0U) ||
+           ((nowMs - lastRawPrintMs_) >= AppConfig::kCanRawSerialLogIntervalMs))) {
+        lastRawPrintMs_ = nowMs;
+        Serial.printf("CAN RX raw: %s\n", monitorLine);      }
+
+      if (trackFrame) {
+        appendMonitorLine(rxFrame);
+      }
     }
 
-    appendMonitorLine(rxFrame);
     tryDecodeSpeed(rxFrame, nowMs);
     ++framesProcessed;
   }
@@ -229,6 +286,11 @@ void CanManager::printStatus(const char *prefix) const {
 
   if (!initialized_) {
     Serial.println("CAN backend not initialized");
+    return;
+  }
+
+  if (backendType_ == CAN_BACKEND_FD) {
+    Serial.printf("CAN-FD backend status: %s\n", getBackendDiagnosticText());
     return;
   }
 
@@ -477,6 +539,9 @@ bool CanManager::tryDecodeSpeed(const CanFrame &rxFrame, uint32_t nowMs) {
         ((decodedSpeedTimeoutMs_ == 0U) ||
          ((nowMs - decodedSpeed_.lastUpdateMs) <= decodedSpeedTimeoutMs_));
     if (decodedStillFresh && (config.priority < decodedSpeed_.decoderPriority)) {
+      continue;
+    }
+    if (!isPlausibleSpeedTransition(decodedSpeed_, speedKmh, nowMs)) {
       continue;
     }
 

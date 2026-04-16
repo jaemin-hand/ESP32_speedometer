@@ -5,22 +5,36 @@
 
 namespace AppConfig {
 
-// Keep the currently working SantaFe classic CAN path as the default baseline.
-// When we start real CAN-FD bring-up, switching profile/backend should only
-// require changing these values instead of touching app_main wiring.
-constexpr CanBackendType kRequestedCanBackend = CAN_BACKEND_CLASSIC;
+// Current bring-up priority is CAN-FD through the external MCP2517FD board.
+constexpr CanBackendType kRequestedCanBackend = CAN_BACKEND_FD;
 constexpr CanProfileId kActiveCanProfile = CAN_PROFILE_SANTAFE_CLASSIC;
 
 // Local clock display offset from UTC in minutes.
 constexpr int32_t kLocalUtcOffsetMinutes = 9 * 60;
 
-// Tentative MCP2518FD SPI pin plan for future CAN-FD bring-up.
-// We intentionally keep Classic CAN on GPIO2/GPIO48 unchanged and reserve a
-// separate SPI path for the external CAN-FD controller.
+// Legacy TWAI classic CAN pins. Keep them disabled by default while the
+// project runs through the external MCP2517FD path.
+constexpr gpio_num_t kClassicCanTxPin = GPIO_NUM_NC;
+constexpr gpio_num_t kClassicCanRxPin = GPIO_NUM_NC;
+
+// MCP2517FD SPI pin plan for CAN-FD bring-up.
+// The default build no longer reserves GPIO2/GPIO48 for the old TWAI path.
 constexpr gpio_num_t kCanFdSpiSckPin = GPIO_NUM_5;
 constexpr gpio_num_t kCanFdSpiMosiPin = GPIO_NUM_4;
 constexpr gpio_num_t kCanFdSpiMisoPin = GPIO_NUM_45;
-constexpr gpio_num_t kCanFdSpiCsPin = GPIO_NUM_46;
+constexpr gpio_num_t kCanFdSpiCsPin = GPIO_NUM_32;
+// 10 kHz was enough for bring-up but stalls the UI during live CAN-FD RX.
+constexpr uint32_t kCanFdSpiClockHz = 1000000UL;
+constexpr uint32_t kCanFdControllerClockHz = 40000000UL;
+constexpr uint32_t kCanFdNominalBitRate = 500000UL;
+constexpr uint32_t kCanFdDataBitRate = 2000000UL;
+
+// Runtime serial debug controls. Disable periodic logs by default so UI
+// refresh stays smooth while CAN-FD traffic is active.
+constexpr bool kEnableCanRawSerialLog = true;
+constexpr uint32_t kCanRawSerialLogIntervalMs = 100U;
+constexpr bool kEnablePeriodicGpsSummary = true;
+constexpr bool kEnablePeriodicCanStatus = true;
 
 // First bring-up can start in polling mode, so IRQ/RESET/STBY stay optional.
 constexpr gpio_num_t kCanFdIrqPin = GPIO_NUM_NC;
@@ -70,11 +84,9 @@ struct PulseInputConfig {
   float speedFilterAlpha = 0.25f;
 };
 
-// Pulse input 1st-stage bring-up.
-// This is treated as the EXT speed source and can be reassigned later if the
-// final hardware uses a different input pin.
+// Pulse input is disabled during CAN-FD bring-up.
 constexpr PulseInputConfig kPulseInputConfig = {
-    .inputPin = GPIO_NUM_46,
+    .inputPin = GPIO_NUM_NC,
     .usePullup = true,
     .calibration =
         {
@@ -90,3 +102,5 @@ constexpr PulseInputConfig kPulseInputConfig = {
 };
 
 }  // namespace AppConfig
+
+

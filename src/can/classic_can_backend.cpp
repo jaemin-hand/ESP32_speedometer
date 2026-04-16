@@ -20,7 +20,7 @@ CanBackendRequirements ClassicCanBackend::requirements() const {
       .requiresExternalTransceiver = true,
       .maxPayloadBytes = 8,
       .driverFamily = "ESP32 TWAI",
-      .expectedHardware = "Current classic CAN transceiver path",
+      .expectedHardware = "Explicit classic CAN transceiver on configured TX/RX pins",
       .nextBringupStep = "Classic CAN baseline already ready",
   };
 }
@@ -31,6 +31,11 @@ const char *ClassicCanBackend::diagnosticText() const {
 
 bool ClassicCanBackend::begin(const CanBackendOptions &options) {
   end();
+
+  if (options.txPin == GPIO_NUM_NC || options.rxPin == GPIO_NUM_NC) {
+    Serial.println("Classic CAN backend requires explicit TX/RX pins");
+    return false;
+  }
 
   twai_general_config_t gConfig =
       TWAI_GENERAL_CONFIG_DEFAULT(options.txPin, options.rxPin, TWAI_MODE_NORMAL);
