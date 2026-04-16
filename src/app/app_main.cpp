@@ -28,8 +28,6 @@ namespace {
 
 constexpr const char *kFirmwareTag = "FW CAN_DIAG_2026-04-06_37_MEASEPOCH_DIAG";
 
-constexpr int CAN_RX_PIN = 2; // == receiver RX label
-constexpr int CAN_TX_PIN = 48; // == transceiver TX label
 constexpr int GPS_RX_PIN = 3;  // mosaic TX -> esp GPIO3
 constexpr int GPS_TX_PIN = 47; // esp GPIO47 -> mosaic RX pin
 constexpr uint32_t GPS_BAUD_RATE = 460800;
@@ -567,9 +565,17 @@ void appSetup() {
     Serial.println("Pulse input disabled or not configured");
   }
 
+  const CanBackendType resolvedCanBackend =
+      getCanProfile(AppConfig::kActiveCanProfile).backendType;
+  const bool useClassicCanPins =
+      (AppConfig::kRequestedCanBackend == CAN_BACKEND_CLASSIC) ||
+      (resolvedCanBackend == CAN_BACKEND_CLASSIC);
+  const gpio_num_t canTxPin = useClassicCanPins ? AppConfig::kClassicCanTxPin : GPIO_NUM_NC;
+  const gpio_num_t canRxPin = useClassicCanPins ? AppConfig::kClassicCanRxPin : GPIO_NUM_NC;
+
   if (canManager.begin(
-          static_cast<gpio_num_t>(CAN_TX_PIN),
-          static_cast<gpio_num_t>(CAN_RX_PIN),
+          canTxPin,
+          canRxPin,
           AppConfig::kRequestedCanBackend,
           AppConfig::kActiveCanProfile)) {
     const CanBackendCapabilities caps = canManager.getBackendCapabilities();

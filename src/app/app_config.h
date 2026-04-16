@@ -12,9 +12,13 @@ constexpr CanProfileId kActiveCanProfile = CAN_PROFILE_TUCSON_FD_CANDIDATES;
 // Local clock display offset from UTC in minutes.
 constexpr int32_t kLocalUtcOffsetMinutes = 9 * 60;
 
+// Legacy TWAI classic CAN pins. Keep them disabled by default while the
+// project runs through the external MCP2517FD path.
+constexpr gpio_num_t kClassicCanTxPin = GPIO_NUM_NC;
+constexpr gpio_num_t kClassicCanRxPin = GPIO_NUM_NC;
+
 // MCP2517FD SPI pin plan for CAN-FD bring-up.
-// We intentionally keep Classic CAN on GPIO2/GPIO48 unchanged and reserve a
-// separate SPI path for the external CAN-FD controller.
+// The default build no longer reserves GPIO2/GPIO48 for the old TWAI path.
 constexpr gpio_num_t kCanFdSpiSckPin = GPIO_NUM_5;
 constexpr gpio_num_t kCanFdSpiMosiPin = GPIO_NUM_4;
 constexpr gpio_num_t kCanFdSpiMisoPin = GPIO_NUM_45;

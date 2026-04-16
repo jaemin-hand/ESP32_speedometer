@@ -58,7 +58,7 @@ constexpr CanSpeedDecoderConfig kTucsonFdCandidateDecoders[] = {
         250,
     },
     {
-        true,
+        false,
         "tucson_fd_vehicle_speed_0x040",
         0x040,
         false,
@@ -73,7 +73,7 @@ constexpr CanSpeedDecoderConfig kTucsonFdCandidateDecoders[] = {
         250,
     },
     {
-        true,
+        false,
         "tucson_fd_coarse_fallback_0x145",
         0x145,
         false,
@@ -93,8 +93,8 @@ constexpr CanProfile kProfiles[] = {
     {
         CAN_PROFILE_SANTAFE_CLASSIC,
         "SantaFe Classic CAN",
-        CAN_BACKEND_CLASSIC,
-        "Working baseline: raw monitor + 0x450 byte0 fallback + 0x386 wheel-average candidate",
+        CAN_BACKEND_FD,
+        "Unified MCP2517FD path: classic CAN decoders (0x450, 0x386) now run through the external controller at 500 kbps nominal",
         kSantaFeClassicDecoders,
         sizeof(kSantaFeClassicDecoders) / sizeof(kSantaFeClassicDecoders[0]),
     },
@@ -102,7 +102,7 @@ constexpr CanProfile kProfiles[] = {
         CAN_PROFILE_TUCSON_FD_CANDIDATES,
         "Tucson NX4 CAN-FD Candidates",
         CAN_BACKEND_FD,
-        "Offline log says decimal speed is strongest on 0x0B5 u16@22 /100, backup 0x040 u16@16 /100; 0x145 u16@6 /256 is coarse fallback only",
+        "Single-source test: only 0x0B5 u16@22 /100 enabled; 0x040 and 0x145 disabled to isolate source mixing",
         kTucsonFdCandidateDecoders,
         sizeof(kTucsonFdCandidateDecoders) / sizeof(kTucsonFdCandidateDecoders[0]),
     },
