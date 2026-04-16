@@ -7,7 +7,7 @@ namespace AppConfig {
 
 // Current bring-up priority is CAN-FD through the external MCP2517FD board.
 constexpr CanBackendType kRequestedCanBackend = CAN_BACKEND_FD;
-constexpr CanProfileId kActiveCanProfile = CAN_PROFILE_TUCSON_FD_CANDIDATES;
+constexpr CanProfileId kActiveCanProfile = CAN_PROFILE_SANTAFE_CLASSIC;
 
 // Local clock display offset from UTC in minutes.
 constexpr int32_t kLocalUtcOffsetMinutes = 9 * 60;
@@ -31,10 +31,10 @@ constexpr uint32_t kCanFdDataBitRate = 2000000UL;
 
 // Runtime serial debug controls. Disable periodic logs by default so UI
 // refresh stays smooth while CAN-FD traffic is active.
-constexpr bool kEnableCanRawSerialLog = false;
+constexpr bool kEnableCanRawSerialLog = true;
 constexpr uint32_t kCanRawSerialLogIntervalMs = 100U;
-constexpr bool kEnablePeriodicGpsSummary = false;
-constexpr bool kEnablePeriodicCanStatus = false;
+constexpr bool kEnablePeriodicGpsSummary = true;
+constexpr bool kEnablePeriodicCanStatus = true;
 
 // First bring-up can start in polling mode, so IRQ/RESET/STBY stay optional.
 constexpr gpio_num_t kCanFdIrqPin = GPIO_NUM_NC;
