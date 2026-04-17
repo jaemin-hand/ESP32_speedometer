@@ -6,6 +6,7 @@ class FusionManager {
 public:
   void update(const FusionInputs &inputs);
   void cycleMode();
+  void resetCanContext();
 
   const FusionState &getState() const;
 

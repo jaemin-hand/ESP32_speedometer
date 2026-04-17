@@ -59,6 +59,8 @@ private:
       uint8_t startByte,
       uint8_t lengthBytes,
       CanSignalEndian endian);
+  static bool isSantaFeClassicSignature(const CanFrame &rxFrame);
+  static bool isTucsonFdSignature(const CanFrame &rxFrame);
   static bool decodeSpeedValue(
       const CanFrame &rxFrame,
       const CanSpeedDecoderConfig &config,
@@ -67,6 +69,8 @@ private:
       const CanFrame &rxFrame,
       char *lineBuf,
       size_t lineBufSize);
+  void resetProfileRuntimeState();
+  bool maybeAutoSwitchProfile(const CanFrame &rxFrame, uint32_t nowMs);
   void appendMonitorLine(const CanFrame &rxFrame);
   void rebuildMonitorText();
   bool tryDecodeSpeed(const CanFrame &rxFrame, uint32_t nowMs);
@@ -88,6 +92,9 @@ private:
   bool initialized_ = false;
   CanBackendType backendType_ = CAN_BACKEND_CLASSIC;
   const CanProfile *configuredProfile_ = nullptr;
+  uint32_t santaFeSignatureLastSeenMs_ = 0;
+  uint32_t tucsonFdSignatureLastSeenMs_ = 0;
+  uint32_t lastProfileSwitchMs_ = 0;
   CanDecoderDiagnosticState decoderDiagnostics_[kMaxDecoderDiagnostics] = {};
   ICanBackend *backend_ = nullptr;
 };

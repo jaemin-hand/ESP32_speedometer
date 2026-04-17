@@ -1,4 +1,4 @@
-#pragma GCC push_options
+﻿#pragma GCC push_options
 #pragma GCC optimize("O3")
 
 #include "app_main.h"
@@ -64,6 +64,7 @@ FusionManager fusionManager;
 UiManager uiManager;
 bool gnssTestOverrideEnabled = false;
 bool extTestOverrideEnabled = false;
+CanProfileId activeCanProfile = AppConfig::kActiveCanProfile;
 
 GpsData buildEffectiveGpsData(const GpsData &rawGps) {
   GpsData effectiveGps = rawGps;
@@ -301,12 +302,16 @@ void myTouchpadRead(lv_indev_drv_t *indevDriver, lv_indev_data_t *data) {
 void printGpsSummary() {
   const GpsData gps = buildEffectiveGpsData(gnss.getData());
   const FusionState &fusionState = fusionManager.getState();
+  const CanProfileId canProfileId = canManager.getProfileId();
   const CanDecodedSpeedState &canSpeedState = canManager.getDecodedSpeedState();
   CanDecodedSpeedState canReplayState = {};
   CanDecodedSpeedState canWheelState = {};
+  const bool isSantaFeProfile = (canProfileId == CAN_PROFILE_SANTAFE_CLASSIC);
   const bool hasCanReplayState =
+      isSantaFeProfile &&
       canManager.getDecoderDiagnostic("santafe_replay_speed", &canReplayState);
   const bool hasCanWheelState =
+      isSantaFeProfile &&
       canManager.getDecoderDiagnostic("santafe_wheel_avg_0x386", &canWheelState);
   const PulseInputState pulseState =
       buildEffectivePulseState(pulseInputManager.getState(), millis());
@@ -453,6 +458,82 @@ UiSnapshot buildUiSnapshot(const GpsData &gps) {
   return snapshot;
 }
 
+void printCanProfileCommands() {
+  Serial.println("CAN profile cmd: auto detect active, 1=SantaFe override, 2=Tucson override, p=cycle profile");
+}
+
+void printCanBringupSummary() {
+  const CanBackendCapabilities caps = canManager.getBackendCapabilities();
+  const CanBackendRequirements reqs = canManager.getBackendRequirements();
+  Serial.println("CAN backend initialized");
+  Serial.printf(
+      "CAN backend requested: %s\n",
+      (AppConfig::kRequestedCanBackend == CAN_BACKEND_CLASSIC) ? "CLASSIC_CAN" : "CAN_FD");
+  Serial.printf("CAN backend in use: %s\n", canManager.getBackendName());
+  Serial.printf("CAN profile in use: %s\n", canManager.getProfileName());
+  Serial.printf("CAN profile note: %s\n", canManager.getProfileBringupNote());
+  Serial.printf(
+      "CAN backend caps: classic=%s fd=%s ready=%s\n",
+      caps.supportsClassicCan ? "YES" : "NO",
+      caps.supportsCanFd ? "YES" : "NO",
+      caps.backendReady ? "YES" : "NO");
+  Serial.printf(
+      "CAN backend reqs: ext_ctrl=%s ext_xcvr=%s max_payload=%u driver=%s\n",
+      reqs.requiresExternalController ? "YES" : "NO",
+      reqs.requiresExternalTransceiver ? "YES" : "NO",
+      static_cast<unsigned>(reqs.maxPayloadBytes),
+      reqs.driverFamily);
+  Serial.printf("CAN backend hw: %s\n", reqs.expectedHardware);
+  Serial.printf("CAN next step : %s\n", reqs.nextBringupStep);
+  Serial.printf("CAN backend note: %s\n", canManager.getBackendDiagnosticText());
+}
+
+bool applyCanProfile(CanProfileId profileId, const char *reason) {
+  const CanProfile &profile = getCanProfile(profileId);
+  const CanBackendType resolvedCanBackend = profile.backendType;
+  const bool useClassicCanPins =
+      (AppConfig::kRequestedCanBackend == CAN_BACKEND_CLASSIC) ||
+      (resolvedCanBackend == CAN_BACKEND_CLASSIC);
+  const gpio_num_t canTxPin = useClassicCanPins ? AppConfig::kClassicCanTxPin : GPIO_NUM_NC;
+  const gpio_num_t canRxPin = useClassicCanPins ? AppConfig::kClassicCanRxPin : GPIO_NUM_NC;
+
+  if (reason != nullptr && reason[0] != '\0') {
+    Serial.printf("CAN profile switch -> %s (%s)\n", profile.name, reason);
+  }
+
+  if (!canManager.begin(
+          canTxPin,
+          canRxPin,
+          AppConfig::kRequestedCanBackend,
+          profileId)) {
+    Serial.println("CAN backend initialization failed");
+    Serial.printf("CAN backend note: %s\n", canManager.getBackendDiagnosticText());
+    return false;
+  }
+
+  activeCanProfile = profileId;
+  fusionManager.resetCanContext();
+  printCanBringupSummary();
+  return true;
+}
+
+void cycleCanProfile() {
+  const size_t profileCount = getCanProfileCount();
+  const CanProfileId currentProfileId = canManager.isInitialized()
+                                            ? canManager.getProfileId()
+                                            : activeCanProfile;
+  size_t activeIndex = 0;
+  for (size_t i = 0; i < profileCount; ++i) {
+    if (getCanProfileByIndex(i).id == currentProfileId) {
+      activeIndex = i;
+      break;
+    }
+  }
+
+  const size_t nextIndex = (activeIndex + 1U) % profileCount;
+  applyCanProfile(getCanProfileByIndex(nextIndex).id, "cycle");
+}
+
 void handleUiActions(uint8_t actions, uint32_t nowMs) {
   if ((actions & UI_ACTION_SEND_TEST_CAN) != 0U) {
     if (canManager.sendTestFrame()) {
@@ -565,46 +646,8 @@ void appSetup() {
     Serial.println("Pulse input disabled or not configured");
   }
 
-  const CanBackendType resolvedCanBackend =
-      getCanProfile(AppConfig::kActiveCanProfile).backendType;
-  const bool useClassicCanPins =
-      (AppConfig::kRequestedCanBackend == CAN_BACKEND_CLASSIC) ||
-      (resolvedCanBackend == CAN_BACKEND_CLASSIC);
-  const gpio_num_t canTxPin = useClassicCanPins ? AppConfig::kClassicCanTxPin : GPIO_NUM_NC;
-  const gpio_num_t canRxPin = useClassicCanPins ? AppConfig::kClassicCanRxPin : GPIO_NUM_NC;
-
-  if (canManager.begin(
-          canTxPin,
-          canRxPin,
-          AppConfig::kRequestedCanBackend,
-          AppConfig::kActiveCanProfile)) {
-    const CanBackendCapabilities caps = canManager.getBackendCapabilities();
-    const CanBackendRequirements reqs = canManager.getBackendRequirements();
-    Serial.println("CAN backend initialized");
-    Serial.printf(
-        "CAN backend requested: %s\n",
-        (AppConfig::kRequestedCanBackend == CAN_BACKEND_CLASSIC) ? "CLASSIC_CAN" : "CAN_FD");
-    Serial.printf("CAN backend in use: %s\n", canManager.getBackendName());
-    Serial.printf("CAN profile in use: %s\n", canManager.getProfileName());
-    Serial.printf("CAN profile note: %s\n", canManager.getProfileBringupNote());
-    Serial.printf(
-        "CAN backend caps: classic=%s fd=%s ready=%s\n",
-        caps.supportsClassicCan ? "YES" : "NO",
-        caps.supportsCanFd ? "YES" : "NO",
-        caps.backendReady ? "YES" : "NO");
-    Serial.printf(
-        "CAN backend reqs: ext_ctrl=%s ext_xcvr=%s max_payload=%u driver=%s\n",
-        reqs.requiresExternalController ? "YES" : "NO",
-        reqs.requiresExternalTransceiver ? "YES" : "NO",
-        static_cast<unsigned>(reqs.maxPayloadBytes),
-        reqs.driverFamily);
-    Serial.printf("CAN backend hw: %s\n", reqs.expectedHardware);
-    Serial.printf("CAN next step : %s\n", reqs.nextBringupStep);
-    Serial.printf("CAN backend note: %s\n", canManager.getBackendDiagnosticText());
-  } else {
-    Serial.println("CAN backend initialization failed");
-    Serial.printf("CAN backend note: %s\n", canManager.getBackendDiagnosticText());
-  }
+  applyCanProfile(activeCanProfile, "boot");
+  printCanProfileCommands();
 
   uiManager.begin();
 }
@@ -633,10 +676,23 @@ void appLoop() {
           "EXT test override -> %s (%.1f km/h)\n",
           extTestOverrideEnabled ? "ON" : "OFF",
           EXT_TEST_SPEED_KMH);
+    } else if (ch == '1') {
+      applyCanProfile(CAN_PROFILE_SANTAFE_CLASSIC, "serial");
+    } else if (ch == '2') {
+      applyCanProfile(CAN_PROFILE_TUCSON_FD_CANDIDATES, "serial");
+    } else if (ch == 'p' || ch == 'P') {
+      cycleCanProfile();
+    } else if (ch == '?' || ch == 'h' || ch == 'H') {
+      printCanProfileCommands();
     }
   }
 
   canManager.poll(nowMs);
+  const CanProfileId observedCanProfile = canManager.getProfileId();
+  if (observedCanProfile != activeCanProfile) {
+    activeCanProfile = observedCanProfile;
+    fusionManager.resetCanContext();
+  }
   pulseInputManager.update(nowMs);
 
   if (ENABLE_CAN_HEARTBEAT && (nowMs - lastCanHeartbeatMs) >= CAN_HEARTBEAT_INTERVAL_MS) {

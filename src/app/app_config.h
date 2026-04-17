@@ -22,7 +22,7 @@ constexpr gpio_num_t kClassicCanRxPin = GPIO_NUM_NC;
 constexpr gpio_num_t kCanFdSpiSckPin = GPIO_NUM_5;
 constexpr gpio_num_t kCanFdSpiMosiPin = GPIO_NUM_4;
 constexpr gpio_num_t kCanFdSpiMisoPin = GPIO_NUM_45;
-constexpr gpio_num_t kCanFdSpiCsPin = GPIO_NUM_32;
+constexpr gpio_num_t kCanFdSpiCsPin = GPIO_NUM_2;
 // 10 kHz was enough for bring-up but stalls the UI during live CAN-FD RX.
 constexpr uint32_t kCanFdSpiClockHz = 1000000UL;
 constexpr uint32_t kCanFdControllerClockHz = 40000000UL;
