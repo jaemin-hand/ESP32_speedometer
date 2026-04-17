@@ -306,6 +306,29 @@ void FusionManager::cycleMode() {
   state_.autoState = autoState_;
 }
 
+void FusionManager::resetCanContext() {
+  canCandidateSinceMs_ = 0;
+  lastCanCorrSampleMs_ = 0;
+  canCorrFactor_ = 1.0f;
+  canCorrSampleCount_ = 0;
+
+  if (mode_ == SPEED_MODE_AUTO) {
+    autoState_ = AUTO_STATE_SEARCH;
+  }
+
+  state_.autoState = autoState_;
+  state_.canStable = false;
+  state_.canCorrLearned = false;
+  state_.canCorrFactor = 1.0f;
+  state_.canCorrSampleCount = 0;
+  state_.correctedCanSpeedKmh = 0.0f;
+  if (state_.selectedSource == SPEED_SOURCE_CAN) {
+    state_.selectedSource = SPEED_SOURCE_NONE;
+    state_.selectedSpeedKmh = 0.0f;
+    state_.corrActive = false;
+  }
+}
+
 const FusionState &FusionManager::getState() const {
   return state_;
 }

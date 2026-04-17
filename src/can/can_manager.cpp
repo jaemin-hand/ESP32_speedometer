@@ -29,6 +29,8 @@ constexpr uint8_t kMaxFramesPerPoll = 32;
 constexpr uint32_t kSpeedJumpGuardWindowMs = 2000;
 constexpr float kSpeedJumpGuardBaseKmh = 5.0f;
 constexpr float kSpeedJumpGuardPerMs = 0.03f;
+constexpr uint32_t kAutoProfileStickMs = 1000;
+constexpr uint32_t kAutoProfileSwitchCooldownMs = 250;
 
 ICanBackend *selectBackend(CanBackendType backendType) {
   switch (backendType) {
@@ -86,14 +88,10 @@ bool CanManager::begin(
   }
 
   lastRxMs_ = 0;
-  lastRawPrintMs_ = 0;
-  decodedSpeedTimeoutMs_ = 0;
-  decodedSpeed_ = {};
-  nextMonitorLineIndex_ = 0;
-  monitorWrapped_ = false;
-  memset(monitorLines_, 0, sizeof(monitorLines_));
-  snprintf(monitorText_, sizeof(monitorText_), "Waiting for CAN data...");
-  memset(decoderDiagnostics_, 0, sizeof(decoderDiagnostics_));
+  santaFeSignatureLastSeenMs_ = 0;
+  tucsonFdSignatureLastSeenMs_ = 0;
+  lastProfileSwitchMs_ = 0;
+  resetProfileRuntimeState();
 
   const CanBackendOptions options = {
       .txPin = txPin,
@@ -189,6 +187,7 @@ void CanManager::poll(uint32_t nowMs) {
   uint8_t framesProcessed = 0;
   while ((framesProcessed < kMaxFramesPerPoll) && backend_->receive(&rxFrame)) {
     lastRxMs_ = nowMs;
+    maybeAutoSwitchProfile(rxFrame, nowMs);
     const bool trackFrame = frameMatchesSpeedDecoder(rxFrame);
 
     if (trackFrame || AppConfig::kEnableCanRawSerialLog) {
@@ -333,6 +332,83 @@ uint32_t CanManager::readUnsignedValue(
   }
 
   return value;
+}
+
+bool CanManager::isSantaFeClassicSignature(const CanFrame &rxFrame) {
+  return !rxFrame.fdFormat &&
+         !rxFrame.extended &&
+         ((rxFrame.identifier == 0x450U) || (rxFrame.identifier == 0x386U));
+}
+
+bool CanManager::isTucsonFdSignature(const CanFrame &rxFrame) {
+  return rxFrame.fdFormat &&
+         !rxFrame.extended &&
+         ((rxFrame.identifier == 0x0B5U) ||
+          (rxFrame.identifier == 0x040U) ||
+          (rxFrame.identifier == 0x145U));
+}
+
+void CanManager::resetProfileRuntimeState() {
+  lastRawPrintMs_ = 0;
+  decodedSpeedTimeoutMs_ = 0;
+  decodedSpeed_ = {};
+  nextMonitorLineIndex_ = 0;
+  monitorWrapped_ = false;
+  memset(monitorLines_, 0, sizeof(monitorLines_));
+  snprintf(monitorText_, sizeof(monitorText_), "Waiting for CAN data...");
+  memset(decoderDiagnostics_, 0, sizeof(decoderDiagnostics_));
+}
+
+bool CanManager::maybeAutoSwitchProfile(const CanFrame &rxFrame, uint32_t nowMs) {
+  if (configuredProfile_ == nullptr) {
+    return false;
+  }
+
+  CanProfileId detectedProfileId = configuredProfile_->id;
+  bool signatureMatched = false;
+
+  if (isSantaFeClassicSignature(rxFrame)) {
+    santaFeSignatureLastSeenMs_ = nowMs;
+    detectedProfileId = CAN_PROFILE_SANTAFE_CLASSIC;
+    signatureMatched = true;
+  } else if (isTucsonFdSignature(rxFrame)) {
+    tucsonFdSignatureLastSeenMs_ = nowMs;
+    detectedProfileId = CAN_PROFILE_TUCSON_FD_CANDIDATES;
+    signatureMatched = true;
+  }
+
+  if (!signatureMatched || (detectedProfileId == configuredProfile_->id)) {
+    return false;
+  }
+
+  const uint32_t currentProfileLastSeenMs =
+      (configuredProfile_->id == CAN_PROFILE_SANTAFE_CLASSIC)
+          ? santaFeSignatureLastSeenMs_
+          : tucsonFdSignatureLastSeenMs_;
+  if ((currentProfileLastSeenMs != 0U) &&
+      ((nowMs - currentProfileLastSeenMs) <= kAutoProfileStickMs)) {
+    return false;
+  }
+
+  if ((lastProfileSwitchMs_ != 0U) &&
+      ((nowMs - lastProfileSwitchMs_) <= kAutoProfileSwitchCooldownMs)) {
+    return false;
+  }
+
+  const CanProfile &nextProfile = getCanProfile(detectedProfileId);
+  if (nextProfile.backendType != backendType_) {
+    return false;
+  }
+
+  configuredProfile_ = &nextProfile;
+  lastProfileSwitchMs_ = nowMs;
+  resetProfileRuntimeState();
+  Serial.printf(
+      "CAN auto profile -> %s via 0x%X [%s]\n",
+      configuredProfile_->name,
+      rxFrame.identifier,
+      rxFrame.fdFormat ? "FD" : "classic");
+  return true;
 }
 
 bool CanManager::decodeSpeedValue(
@@ -534,14 +610,21 @@ bool CanManager::tryDecodeSpeed(const CanFrame &rxFrame, uint32_t nowMs) {
       continue;
     }
 
+    // Keep per-decoder diagnostics fresh even when a frame is not allowed to
+    // replace the currently selected speed source.
+    updateDecoderDiagnostic(config, rxFrame.identifier, speedKmh, nowMs);
+
     const bool decodedStillFresh =
         decodedSpeed_.valid &&
         ((decodedSpeedTimeoutMs_ == 0U) ||
          ((nowMs - decodedSpeed_.lastUpdateMs) <= decodedSpeedTimeoutMs_));
-    if (decodedStillFresh && (config.priority < decodedSpeed_.decoderPriority)) {
+    const bool isHigherPrioritySource =
+        !decodedStillFresh || !decodedSpeed_.valid ||
+        (config.priority < decodedSpeed_.decoderPriority);
+    if (decodedStillFresh && (config.priority > decodedSpeed_.decoderPriority)) {
       continue;
     }
-    if (!isPlausibleSpeedTransition(decodedSpeed_, speedKmh, nowMs)) {
+    if (!isHigherPrioritySource && !isPlausibleSpeedTransition(decodedSpeed_, speedKmh, nowMs)) {
       continue;
     }
 
@@ -552,7 +635,6 @@ bool CanManager::tryDecodeSpeed(const CanFrame &rxFrame, uint32_t nowMs) {
     decodedSpeed_.decoderName = config.name;
     decodedSpeed_.decoderPriority = config.priority;
     decodedSpeedTimeoutMs_ = config.timeoutMs;
-    updateDecoderDiagnostic(config, rxFrame.identifier, speedKmh, nowMs);
     return true;
   }
 
